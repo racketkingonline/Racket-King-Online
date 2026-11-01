@@ -11,13 +11,18 @@ export async function openDb(): Promise<Db> {
     // Con o senza SSL a seconda del fornitore: si prova prima senza (reti interne di Render e Railway), poi con.
     const make = (ssl: boolean) => new pg.Pool({ connectionString: url, max: 10, ssl: ssl ? { rejectUnauthorized: false } : undefined, connectionTimeoutMillis: 15000 });
     const wantSsl = /sslmode=require/.test(url) || process.env.PGSSL === '1';
-    let pool = make(wantSsl);
-    try { await pool.query('select 1'); }
-    catch (e) {
-      console.warn(`database: connessione ${wantSsl ? 'con' : 'senza'} SSL fallita (${(e as Error).message}), riprovo ${wantSsl ? 'senza' : 'con'} SSL`);
-      await pool.end().catch(() => {});
-      pool = make(!wantSsl);
-      await pool.query('select 1');
+    // il database può essere ancora in avvio (succede al primo deploy): si riprova per un paio di minuti
+    let pool = make(wantSsl); let ssl = wantSsl;
+    for (let attempt = 1; ; attempt++) {
+      try { await pool.query('select 1'); break; }
+      catch (e) {
+        const msg = (e as Error).message;
+        await pool.end().catch(() => {});
+        if (/ssl|encryption|pg_hba/i.test(msg)) { ssl = !ssl; console.warn(`database: ${msg} → riprovo ${ssl ? 'con' : 'senza'} SSL`); }
+        else if (attempt >= 24) throw e;
+        else { console.warn(`database non ancora raggiungibile (${msg}), tentativo ${attempt}/24 tra 5 secondi`); await new Promise(r => setTimeout(r, 5000)); }
+        pool = make(ssl);
+      }
     }
     console.log('database: PostgreSQL collegato');
     db = { query: async (sql, params) => (await pool.query(sql, params as unknown[])).rows, close: () => pool.end() };

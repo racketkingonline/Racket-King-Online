@@ -8,10 +8,21 @@ export async function openDb(): Promise<Db> {
   const url = process.env.DATABASE_URL;
   let db: Db;
   if (url) {
-    const pool = new pg.Pool({ connectionString: url, max: 10, ssl: /localhost|127\.0\.0\.1|\.railway\.internal|@dpg-[a-z0-9]+-a(\/|:|$)/.test(url) ? undefined : { rejectUnauthorized: false } });
+    // Con o senza SSL a seconda del fornitore: si prova prima senza (reti interne di Render e Railway), poi con.
+    const make = (ssl: boolean) => new pg.Pool({ connectionString: url, max: 10, ssl: ssl ? { rejectUnauthorized: false } : undefined, connectionTimeoutMillis: 15000 });
+    const wantSsl = /sslmode=require/.test(url) || process.env.PGSSL === '1';
+    let pool = make(wantSsl);
+    try { await pool.query('select 1'); }
+    catch (e) {
+      console.warn(`database: connessione ${wantSsl ? 'con' : 'senza'} SSL fallita (${(e as Error).message}), riprovo ${wantSsl ? 'senza' : 'con'} SSL`);
+      await pool.end().catch(() => {});
+      pool = make(!wantSsl);
+      await pool.query('select 1');
+    }
+    console.log('database: PostgreSQL collegato');
     db = { query: async (sql, params) => (await pool.query(sql, params as unknown[])).rows, close: () => pool.end() };
   } else {
-    if (process.env.NODE_ENV === 'production') console.warn('ATTENZIONE: DATABASE_URL non impostata, uso un database locale (i dati si perdono a ogni deploy). Aggiungi Postgres su Railway.');
+    if (process.env.NODE_ENV === 'production') console.warn('ATTENZIONE: DATABASE_URL non impostata, uso un database locale (i dati si perdono a ogni deploy). Collega un database PostgreSQL (DATABASE_URL).');
     const { PGlite } = await import('@electric-sql/pglite');
     const dir = process.env.PGLITE_DIR ?? './data/pglite';
     if (dir !== 'memory') (await import('node:fs')).mkdirSync(dir, { recursive: true });

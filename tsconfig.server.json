@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "target": "es2023", "lib": ["ES2023", "DOM"], "types": ["node"], "skipLibCheck": true,
+    "module": "esnext", "moduleResolution": "bundler", "resolveJsonModule": true, "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true, "noEmit": true, "strict": true, "noUnusedLocals": true, "noUnusedParameters": true, "jsx": "react-jsx"
+  },
+  "include": ["server/**/*.ts", "src/engine/**/*.ts", "src/mp/**/*.ts", "src/i18n/**/*.ts"],
+  "exclude": ["**/*.test.ts"]
+}

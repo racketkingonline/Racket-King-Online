@@ -426,6 +426,7 @@ function Overview({ s, c, run }: P) {
         </div>
       </section>
 
+      <Ledger s={s} />
       <Family s={s} run={run} />
       <Ranking s={s} />
 
@@ -498,6 +499,69 @@ function Overview({ s, c, run }: P) {
         <LogList s={s} n={6} />
       </section>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------- bilancio: da dove arrivano e dove vanno i soldi
+function Ledger({ s }: { s: GameState }) {
+  const net = useNet();
+  const [perDay, setPerDay] = useState(false);
+  const r = rates(s); const k = perDay ? 24 : 1;
+  type Row = { icon: string; label: string; d: number; c: number; note?: string };
+  const income: Row[] = []; const costs: Row[] = [];
+  // racket (sporco) e attività legali (pulito), sommati su tutte le città
+  for (const rk of RACKETS) {
+    const v = owned(s).reduce((a, c) => a + (r.cities[c.id]?.racket[rk.id]?.eff ?? 0), 0);
+    const n = owned(s).reduce((a, c) => a + c.lots.filter(l => l?.kind === 'racket' && l.id === rk.id).length, 0);
+    if (n) income.push({ icon: `racket-${rk.id}`, label: t(rk.name), d: v, c: 0, note: n > 1 ? t('{n} lotti', { n }) : undefined });
+  }
+  const fronts = new Map<string, { v: number; n: number }>();
+  for (const c of owned(s)) c.lots.forEach((l, i) => { if (l?.kind !== 'front') return; const e = fronts.get(l.id) ?? { v: 0, n: 0 }; e.v += r.cities[c.id]?.lots[i]?.clean ?? 0; e.n++; fronts.set(l.id, e); });
+  for (const [id, e] of fronts) income.push({ icon: `front-${id}`, label: t(nameOf('front', id)), d: 0, c: e.v, note: e.n > 1 ? t('{n} lotti', { n: e.n }) : undefined });
+  // lavaggio: lo sporco esce, il pulito entra meno la commissione
+  if (r.laundering > 0) {
+    income.push({ icon: 'azione-lavaggio', label: t('Lavaggio: contante pulito'), d: 0, c: r.laundering * (1 - r.launderFee) });
+    costs.push({ icon: 'azione-lavaggio', label: t('Lavaggio: contante sporco'), d: r.laundering, c: 0, note: t('commissione {pct}% · {m}/h persi', { pct: Math.round(r.launderFee * 100), m: short(r.laundering * r.launderFee) }) });
+  }
+  // stipendi: uomini in città, a guardia e in missione
+  const men: Partial<Record<UnitId, number>> = {};
+  for (const c of owned(s)) { for (const u of UNITS) men[u.id] = (men[u.id] ?? 0) + c.units[u.id] + (c.guards[u.id] ?? 0); }
+  for (const m of s.missions) for (const [u, n] of Object.entries(m.units)) men[u as UnitId] = (men[u as UnitId] ?? 0) + (n ?? 0);
+  for (const u of UNITS) {
+    const n = men[u.id] ?? 0; if (!n) continue;
+    costs.push({ icon: `crew-${u.id}`, label: t(u.name), d: (u.upkeep.sporco ?? 0) * n, c: (u.upkeep.pulito ?? 0) * n, note: t('{n} × {m}/h', { n, m: money(u.upkeep.sporco ?? u.upkeep.pulito ?? 0) }) });
+  }
+  const payroll = owned(s).reduce((a, c) => a + K.libroPagaUpkeep * c.payroll, 0);
+  if (payroll) costs.push({ icon: 'polizia-libropaga', label: t('Poliziotti a libro paga'), d: payroll, c: 0 });
+  const tribute = net?.me?.lord ? r.dirty * net.me.tribute : 0;
+  if (tribute) costs.push({ icon: 'mappa-banda', label: t('Tributo a {name}', { name: net!.me!.lord!.name }), d: tribute, c: 0, note: `${Math.round(net!.me!.tribute * 100)}%` });
+  const sum = (rows: Row[], key: 'd' | 'c') => rows.reduce((a, x) => a + x[key], 0);
+  const netD = sum(income, 'd') - sum(costs, 'd'), netC = sum(income, 'c') - sum(costs, 'c');
+  const cell = (v: number, sign: 1 | -1) => v ? <td className={sign > 0 ? 'up' : 'down'}>{sign > 0 ? '+' : '−'}{money(v * k)}</td> : <td className="muted">—</td>;
+  const rowsOf = (rows: Row[], sign: 1 | -1) => rows.sort((a, b) => b.d + b.c - a.d - a.c).map((x, i) => (
+    <tr key={sign + x.icon + i}><td><Ico id={x.icon} size="xs" />{x.label}{x.note && <span className="muted small"> · {x.note}</span>}</td>{cell(x.d, sign)}{cell(x.c, sign)}</tr>
+  ));
+  return (
+    <section className="panel wide">
+      <h2 className="with-ico"><Ico id="res-sporco" size="md" />{t('Costi e ricavi')}</h2>
+      <div className="seg" role="group" aria-label={t('Periodo')} style={{ maxWidth: 260 }}>
+        <button className={!perDay ? 'on' : ''} onClick={() => setPerDay(false)}>{t("all'ora")}</button>
+        <button className={perDay ? 'on' : ''} onClick={() => setPerDay(true)}>{t('al giorno')}</button>
+      </div>
+      <table className="market ledger">
+        <thead><tr><th>{t('Voce')}</th><th>{t('Sporco')}</th><th>{t('Pulito')}</th></tr></thead>
+        <tbody>
+          <tr className="group"><td colSpan={3}>{t('Ricavi')}</td></tr>
+          {income.length ? rowsOf(income, 1) : <tr><td colSpan={3} className="muted">{t('Ancora niente: costruisci un racket o un\'attività.')}</td></tr>}
+          <tr className="sub"><td>{t('Totale ricavi')}</td>{cell(sum(income, 'd'), 1)}{cell(sum(income, 'c'), 1)}</tr>
+          <tr className="group"><td colSpan={3}>{t('Costi')}</td></tr>
+          {costs.length ? rowsOf(costs, -1) : <tr><td colSpan={3} className="muted">{t('Nessun costo.')}</td></tr>}
+          <tr className="sub"><td>{t('Totale costi')}</td>{cell(sum(costs, 'd'), -1)}{cell(sum(costs, 'c'), -1)}</tr>
+          <tr className="total"><td>{t('Saldo')}</td><td className={netD >= 0 ? 'up' : 'down'}>{netD >= 0 ? '+' : '−'}{money(Math.abs(netD) * k)}</td><td className={netC >= 0 ? 'up' : 'down'}>{netC >= 0 ? '+' : '−'}{money(Math.abs(netC) * k)}</td></tr>
+        </tbody>
+      </table>
+      <p className="hint">{r.efficiency < 1 ? t('Gestisci più città del tuo limite: tutte le rendite sono al {pct}%.', { pct: Math.round(r.efficiency * 100) }) + ' ' : ''}{t('Se il contante sporco finisce, gli uomini senza paga se ne vanno; il lavaggio lascia sempre in cassa {h} ore di stipendi.', { h: K.wageReserveHours })}</p>
+    </section>
   );
 }
 

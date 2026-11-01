@@ -384,3 +384,10 @@ table.market tr.me td { color: var(--gold); }
   .landing-strip { grid-template-columns: 1fr; margin-top: 10px; }
 }
 a.link { color: var(--muted); font-size: 13.5px; } a.link:hover { color: var(--gold); }
+
+/* ---------- costi e ricavi ---------- */
+table.ledger td:nth-child(2), table.ledger td:nth-child(3), table.ledger th:nth-child(2), table.ledger th:nth-child(3) { text-align: right; font-variant-numeric: tabular-nums; width: 22%; }
+table.ledger td.up { color: var(--good); } table.ledger td.down { color: var(--bad); }
+table.ledger tr.group td { padding-top: 14px; color: var(--gold); font: 500 12px var(--f-title); letter-spacing: .14em; text-transform: uppercase; border-bottom: 1px solid var(--line2); }
+table.ledger tr.sub td { color: var(--muted); font-weight: 600; border-top: 1px solid var(--line); }
+table.ledger tr.total td { font: 500 18px var(--f-title); letter-spacing: .06em; border-top: 2px solid var(--gold-line); padding-top: 10px; }

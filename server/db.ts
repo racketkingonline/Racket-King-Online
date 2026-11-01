@@ -56,5 +56,30 @@ const MIGRATIONS = [
   `create table if not exists world (id integer primary key, meta jsonb not null, updated_at timestamptz not null default now())`,
   `create table if not exists slots (id integer primary key, data jsonb not null, updated_at timestamptz not null default now())`,
   `create index if not exists sessions_user on sessions(user_id)`,
+  `create table if not exists invites (
+     token text primary key,
+     note text,
+     max_uses integer not null default 1,
+     uses integer not null default 0,
+     created_at timestamptz not null default now(),
+     expires_at timestamptz,
+     revoked boolean not null default false
+   )`,
+  `create table if not exists invite_uses (token text not null references invites(token) on delete cascade, user_id integer not null references users(id) on delete cascade, used_at timestamptz not null default now())`,
+  `create table if not exists waitlist (
+     id serial primary key,
+     email text not null unique,
+     lang text,
+     ref text,
+     ip_hash text,
+     user_agent text,
+     created_at timestamptz not null default now(),
+     confirm_token text unique,
+     confirmed_at timestamptz,
+     invite_token text,
+     invited_at timestamptz
+   )`,
+  `alter table users add column if not exists invite_token text`,
+  `alter table invites add column if not exists email text`,
 ];
 async function migrate(db: Db) { for (const m of MIGRATIONS) await db.query(m); }

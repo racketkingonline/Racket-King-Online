@@ -10,6 +10,8 @@ import { resolve } from 'node:path';
 import { openDb } from './db';
 import { Auth } from './auth';
 import { Game } from './game';
+import { alphaRoutes } from './alpha';
+import formbody from '@fastify/formbody';
 
 const PORT = Number(process.env.PORT ?? 8080);
 const DIST = resolve(process.env.DIST_DIR ?? 'dist');
@@ -33,7 +35,9 @@ async function main() {
     if (list.length > Number(process.env.AUTH_RATE ?? 20)) return reply.code(429).send({ ok: false, msg: 'Troppi tentativi: riprova tra qualche minuto.' });
   });
 
+  await app.register(formbody);
   auth.routes(app);
+  alphaRoutes(app, db);
 
   app.get('/api/health', async () => game.health());
 

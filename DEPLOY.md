@@ -27,7 +27,19 @@ il mondo vive nella memoria di un processo e viene salvato nel database ogni 30 
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Accesso con Google (vedi sotto). Senza, il pulsante non compare. |
 | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` | Accesso con Facebook (vedi sotto). Senza, il pulsante non compare. |
 | `RESEND_API_KEY`, `MAIL_FROM` | Email per il recupero password. Senza, il link finisce nei log del server. |
+| `ADMIN_PASSWORD` | Password della pagina `/admin` (lista della closed alpha). |
+| `ALPHA_MODE` | `closed` (predefinito): si entra solo con alfa key. `open`: registrazione libera. |
+| `SECRET` | Chiave per firmare le verifiche antibot (Render la genera da sola). |
 | `WORLD_START` | Opzionale. Data di apertura del mondo (es. `2026-12-01T18:00:00Z`). Senza, parte al primo avvio. |
+
+## Closed alpha
+- La home è la landing della closed alpha: chi arriva lascia l'email (con doppia conferma se le email sono configurate).
+- Vai su `https://<indirizzo>/admin`, entra con `ADMIN_PASSWORD`: vedi gli iscritti. **Give alfa key** manda la mail di accettazione
+  con un link personale (vale 30 giorni, una volta, solo per quell'email). Senza email configurata, il pannello ti mostra il link da mandare a mano.
+- Chi ha la chiave crea il boss dal link; poi rientra dalla home con **Ho un accesso alfa**.
+- Difese: prova di calcolo nel browser, campo trappola, tempo minimo, limiti per IP, domini usa e getta e controllo MX.
+  Per aggiungere Cloudflare Turnstile: crea un widget su https://dash.cloudflare.com → Turnstile e metti `TURNSTILE_SITE_KEY` e `TURNSTILE_SECRET`.
+- Per aprire a tutti: `ALPHA_MODE=open`.
 
 ## 4. Accesso con Google
 1. https://console.cloud.google.com → crea un progetto → **APIs & Services → OAuth consent screen**:

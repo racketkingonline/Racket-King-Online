@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Db } from './db';
+import { alphaClosed, botGuard, consumeInvite, emailProblem, inviteValid, keyForEmail } from './alpha';
 
 export type User = { id: number; email: string | null; name: string | null; player_id: number | null; lang: string | null; google_id: string | null; facebook_id: string | null };
 
@@ -14,6 +15,8 @@ export const providers = () => ({
   google: !!(env('GOOGLE_CLIENT_ID') && env('GOOGLE_CLIENT_SECRET')),
   facebook: !!(env('FACEBOOK_APP_ID') && env('FACEBOOK_APP_SECRET')),
   email: !!env('RESEND_API_KEY'),
+  alpha: alphaClosed(),
+  turnstile: env('TURNSTILE_SITE_KEY') ?? null,
 });
 const baseUrl = (req: FastifyRequest) => env('PUBLIC_URL') ?? (env('RAILWAY_PUBLIC_DOMAIN') ? `https://${env('RAILWAY_PUBLIC_DOMAIN')}` : env('RENDER_EXTERNAL_URL') ?? `${req.protocol}://${req.headers.host}`);
 const token = () => randomBytes(32).toString('base64url');
@@ -63,14 +66,23 @@ export class Auth {
 
     app.post('/api/auth/register', { config: { rateLimit: 'auth' } }, async (req, reply) => {
       const b = (req.body ?? {}) as Record<string, unknown>;
+      const guard = await botGuard(req, b, 'register', 10);
+      if (guard === 'silenzio') return fail(reply, 400, 'Verifica antibot non riuscita: ricarica la pagina e riprova.');
+      if (guard) return fail(reply, 400, guard);
       const email = String(b.email ?? '').trim().toLowerCase(); const password = String(b.password ?? ''); const name = String(b.name ?? '').trim().replace(/\s+/g, ' ');
+      if (alphaClosed() && !(await inviteValid(this.db, b.invite, email))) return fail(reply, 403, 'Serve una alfa key valida per questa email.');
       if (!EMAIL_RE.test(email)) return fail(reply, 400, 'Email non valida.');
+      const emailBad = await emailProblem(email); if (emailBad) return fail(reply, 400, emailBad);
       if (password.length < 8 || password.length > 200) return fail(reply, 400, 'La password deve avere almeno 8 caratteri.');
       const bad = this.validName(name); if (bad) return fail(reply, 400, bad);
       if ((await this.db.query(`select 1 from users where email = $1`, [email])).length) return fail(reply, 409, 'Esiste già un account con questa email.');
       if (await this.nameTaken(name)) return fail(reply, 409, 'Questo nome è già preso da un altro boss.');
       const hash = await bcrypt.hash(password, 10);
       const r = await this.db.query<{ id: number }>(`insert into users (email, password_hash, name, lang) values ($1, $2, $3, $4) returning id`, [email, hash, name, b.lang === 'en' ? 'en' : 'it']);
+      if (alphaClosed() && !(await consumeInvite(this.db, String(b.invite), r[0].id))) {
+        await this.db.query(`delete from users where id = $1`, [r[0].id]);
+        return fail(reply, 403, 'Serve una alfa key valida per questa email.');
+      }
       await this.startSession(reply, r[0].id);
       return { ok: true };
     });
@@ -102,8 +114,12 @@ export class Auth {
       return { ok: true };
     });
 
-    app.post('/api/auth/forgot', { config: { rateLimit: 'auth' } }, async (req) => {
-      const email = String(((req.body ?? {}) as Record<string, unknown>).email ?? '').trim().toLowerCase();
+    app.post('/api/auth/forgot', { config: { rateLimit: 'auth' } }, async (req, reply) => {
+      const fb = (req.body ?? {}) as Record<string, unknown>;
+      const guard = await botGuard(req, fb, 'forgot', 6);
+      if (guard === 'silenzio') return { ok: true };
+      if (guard) return fail(reply, 400, guard);
+      const email = String(fb.email ?? '').trim().toLowerCase();
       const u = (await this.db.query<{ id: number }>(`select id from users where email = $1 and password_hash is not null`, [email]))[0];
       if (u) {
         const t = token();
@@ -130,6 +146,8 @@ export class Auth {
       app.get(`/api/auth/${name}`, async (req, reply) => {
         if (!providers()[name]) return reply.code(404).send('Accesso con ' + name + ' non configurato.');
         const state = token();
+        const inv = (req.query as Record<string, string>).invito;
+        if (inv && /^[\w-]{10,64}$/.test(inv)) reply.setCookie('rk_invite', inv, { path: '/', httpOnly: true, sameSite: 'lax', secure: secure(), maxAge: 1800 });
         reply.setCookie('rk_oauth', state, { path: '/', httpOnly: true, sameSite: 'lax', secure: secure(), maxAge: 600 });
         const redirect = `${baseUrl(req)}/api/auth/${name}/callback`;
         const url = name === 'google'
@@ -163,7 +181,14 @@ export class Auth {
             // stessa email di un account esistente: lo collega
             u = (await this.db.query<{ id: number }>(`update users set ${col} = $1 where email = $2 returning id`, [ext.id, email]))[0];
           }
-          if (!u) u = (await this.db.query<{ id: number }>(`insert into users (email, ${col}) values ($1, $2) returning id`, [email ?? null, ext.id]))[0];
+          if (!u) {
+            // closed alpha: entra chi ha una alfa key per la sua email (o un link di invito valido)
+            const inv = (await keyForEmail(this.db, email)) ?? req.cookies.rk_invite;
+            if (alphaClosed() && !(await inviteValid(this.db, inv, email))) return reply.redirect('/?login=invito');
+            u = (await this.db.query<{ id: number }>(`insert into users (email, ${col}) values ($1, $2) returning id`, [email ?? null, ext.id]))[0];
+            if (alphaClosed() && !(await consumeInvite(this.db, String(inv), u.id))) { await this.db.query(`delete from users where id = $1`, [u.id]); return reply.redirect('/?login=invito'); }
+            reply.clearCookie('rk_invite', { path: '/' });
+          }
           await this.startSession(reply, u.id);
           return reply.redirect('/');
         } catch (e) {

@@ -8,7 +8,7 @@ export async function openDb(): Promise<Db> {
   const url = process.env.DATABASE_URL;
   let db: Db;
   if (url) {
-    const pool = new pg.Pool({ connectionString: url, max: 10, ssl: /localhost|127\.0\.0\.1|\.railway\.internal/.test(url) ? undefined : { rejectUnauthorized: false } });
+    const pool = new pg.Pool({ connectionString: url, max: 10, ssl: /localhost|127\.0\.0\.1|\.railway\.internal|@dpg-[a-z0-9]+-a(\/|:|$)/.test(url) ? undefined : { rejectUnauthorized: false } });
     db = { query: async (sql, params) => (await pool.query(sql, params as unknown[])).rows, close: () => pool.end() };
   } else {
     if (process.env.NODE_ENV === 'production') console.warn('ATTENZIONE: DATABASE_URL non impostata, uso un database locale (i dati si perdono a ogni deploy). Aggiungi Postgres su Railway.');

@@ -15,7 +15,7 @@ export const providers = () => ({
   facebook: !!(env('FACEBOOK_APP_ID') && env('FACEBOOK_APP_SECRET')),
   email: !!env('RESEND_API_KEY'),
 });
-const baseUrl = (req: FastifyRequest) => env('PUBLIC_URL') ?? (env('RAILWAY_PUBLIC_DOMAIN') ? `https://${env('RAILWAY_PUBLIC_DOMAIN')}` : `${req.protocol}://${req.headers.host}`);
+const baseUrl = (req: FastifyRequest) => env('PUBLIC_URL') ?? (env('RAILWAY_PUBLIC_DOMAIN') ? `https://${env('RAILWAY_PUBLIC_DOMAIN')}` : env('RENDER_EXTERNAL_URL') ?? `${req.protocol}://${req.headers.host}`);
 const token = () => randomBytes(32).toString('base64url');
 const secure = () => process.env.NODE_ENV === 'production';
 

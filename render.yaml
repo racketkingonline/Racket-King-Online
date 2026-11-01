@@ -1,0 +1,30 @@
+# Blueprint di Render: un servizio web (Docker) + un database Postgres.
+# Render → New → Blueprint → scegli il repository: crea tutto da solo.
+services:
+  - type: web
+    name: racket-king-online
+    runtime: docker
+    plan: starter            # sempre acceso: il piano gratuito si spegne dopo 15 minuti e fermerebbe il mondo
+    numInstances: 1          # il mondo vive in un solo processo
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase: { name: racket-king-db, property: connectionString }
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: FACEBOOK_APP_ID
+        sync: false
+      - key: FACEBOOK_APP_SECRET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: PUBLIC_URL
+        sync: false
+databases:
+  - name: racket-king-db
+    plan: basic-256mb
+    postgresMajorVersion: "16"

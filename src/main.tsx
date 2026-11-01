@@ -8,7 +8,7 @@ import { getLang, MISSING, t } from './i18n'
 
 // Lingua della pagina e titolo fin dal primo istante; i testi non tradotti restano ispezionabili da console.
 document.documentElement.lang = getLang()
-document.title = t('Racket King Online — prototipo')
+document.title = 'Racket King Online'
 ;(window as unknown as { __i18nMissing: Set<string> }).__i18nMissing = MISSING
 
 // Se qualcosa si rompe durante il gioco, niente pagina bianca: si mostra l'errore e si può ricominciare.

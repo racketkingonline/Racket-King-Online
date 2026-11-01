@@ -87,7 +87,7 @@ export default function App({ net }: { net?: Net } = {}) {
   const rerender = useCallback(() => setV(v => v + 1), []);
   const lang = getLang();
   useEffect(() => { const off = onLang(rerender); return () => { off(); }; }, [rerender]);
-  useEffect(() => { document.documentElement.lang = lang; document.title = t('Racket King Online — prototipo'); }, [lang]);
+  useEffect(() => { document.documentElement.lang = lang; document.title = net ? 'Racket King Online' : t('Racket King Online — prototipo'); }, [lang, net]);
 
   useEffect(() => {
     if (!net) return;

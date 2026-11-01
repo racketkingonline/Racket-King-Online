@@ -167,6 +167,11 @@ async function giveKey(db: Db, id: number, base: string) {
   return link;
 }
 
+// ---------------------------------------------------------------- accesso al pannello
+const adminCookie = () => hmac('admin:' + (env('ADMIN_PASSWORD') ?? ''));
+export const isAdmin = (req: FastifyRequest) => !!env('ADMIN_PASSWORD') && req.cookies.rk_admin === adminCookie();
+export const deny = (reply: FastifyReply) => reply.code(env('ADMIN_PASSWORD') ? 401 : 404).type('text/html').send(env('ADMIN_PASSWORD') ? loginPage() : 'Non trovato');
+
 // ---------------------------------------------------------------- rotte
 export function alphaRoutes(app: FastifyInstance, db: Db) {
   app.get('/api/alpha/challenge', async () => ({ ...challenge(), turnstile: env('TURNSTILE_SITE_KEY') ?? null }));
@@ -228,9 +233,6 @@ export function alphaRoutes(app: FastifyInstance, db: Db) {
   });
 
   // ---------------------------------------------------------------- amministrazione (/admin, password in ADMIN_PASSWORD)
-  const adminCookie = () => hmac('admin:' + (env('ADMIN_PASSWORD') ?? ''));
-  const isAdmin = (req: FastifyRequest) => !!env('ADMIN_PASSWORD') && req.cookies.rk_admin === adminCookie();
-  const deny = (reply: FastifyReply) => reply.code(env('ADMIN_PASSWORD') ? 401 : 404).type('text/html').send(env('ADMIN_PASSWORD') ? loginPage() : 'Non trovato');
 
   app.post('/admin/login', async (req, reply) => {
     const pw = String(((req.body ?? {}) as Record<string, unknown>).password ?? '');
@@ -286,9 +288,9 @@ export function alphaRoutes(app: FastifyInstance, db: Db) {
 }
 
 // ---------------------------------------------------------------- pagine di amministrazione (HTML semplice, senza dipendenze)
-const h = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-const day = (d: unknown) => d ? new Date(String(d)).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
-const STYLE = `body{margin:0;background:#06090a;color:#e8edef;font:15px/1.45 system-ui,sans-serif}main{max-width:1100px;margin:0 auto;padding:24px}
+export const h = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+export const day = (d: unknown) => d ? new Date(String(d)).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+export const STYLE = `body{margin:0;background:#06090a;color:#e8edef;font:15px/1.45 system-ui,sans-serif}main{max-width:1100px;margin:0 auto;padding:24px}
 h1{font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:#c8b082;margin:0 0 16px}h2{font-weight:500;letter-spacing:.06em;text-transform:uppercase;font-size:16px;margin:28px 0 10px;color:#c8b082}
 .box{border:1px solid rgba(150,180,190,.25);background:rgba(13,19,21,.9);padding:16px;margin:12px 0}.stats{display:flex;gap:28px;flex-wrap:wrap}.stats b{display:block;font-size:26px;font-weight:500}
 table{border-collapse:collapse;width:100%;font-size:13.5px}td,th{border-bottom:1px solid rgba(150,180,190,.15);padding:6px 8px;text-align:left;vertical-align:top}th{color:#84939a;font-weight:600;text-transform:uppercase;font-size:11px;letter-spacing:.1em}
@@ -309,7 +311,7 @@ function adminPage(d: AdminData) {
 <main><h1>Racket King Online · closed alpha</h1>
 <div class="box stats"><div><b>${d.wl.n}</b>iscritti</div><div><b>${d.wl.c}</b>email confermate</div><div><b>${d.wl.i}</b>alfa key date</div><div><b>${d.users}</b>boss nel gioco</div></div>
 ${given}
-<p><a href=/admin/waitlist.csv>Scarica la lista (CSV)</a> · ${d.mail ? 'le mail partono da sole' : '<span class=no>email non configurata: la mail di accettazione non parte, ti mostro il link da mandare</span>'}</p>
+<p><a href=/admin/giocatori><b>Giocatori →</b></a> · <a href=/admin/waitlist.csv>Scarica la lista (CSV)</a> · ${d.mail ? 'le mail partono da sole' : '<span class=no>email non configurata: la mail di accettazione non parte, ti mostro il link da mandare</span>'}</p>
 <form id=bulk method=post action=/admin/key></form>
 <div class=box><table><tr><th><input type=checkbox onclick="for(const c of document.querySelectorAll('.pick'))c.checked=this.checked"></th><th>Email</th><th>Lingua</th><th>Iscritto</th><th>Stato</th><th></th></tr>
 ${d.rows.map(r => `<tr><td>${r.boss ? '' : `<input class=pick type=checkbox form=bulk name=id value=${r.id}>`}</td><td>${h(r.email)}${r.ref ? ` <span class=muted>· da ${h(r.ref)}</span>` : ''}</td><td>${h(r.lang)}</td><td>${day(r.created_at)}</td><td>${status(r)}</td>

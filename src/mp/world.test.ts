@@ -59,6 +59,19 @@ describe('mondo multiplayer', () => {
     expect(power(a.s, { soldati: 1 }, 'att')).toBeGreaterThan(0);
   });
 
+  it("l'amministratore sposta un giocatore a Manhattan con edifici e uomini", () => {
+    const { w, a, at } = setup();
+    at(3600); w.sync();
+    const old = a.s.capital; const lots = a.s.cities[old].lots.filter(Boolean).length; const men = a.s.cities[old].units.picchiatori;
+    expect(w.relocate(a, '7')).toBeNull();
+    expect(a.s.capital).toBe('7'); expect(a.s.cities[old]).toBeUndefined();
+    expect(w.owner.get('7')).toBe(a.id); expect(w.owner.has(old)).toBe(false);
+    expect(a.s.cities['7'].lots.filter(Boolean).length).toBe(lots);
+    expect(a.s.cities['7'].units.picchiatori).toBe(men);
+    at(3600); w.sync();
+    expect(a.s.cities['7'].owner).toBe('player');
+  });
+
   it('si salva e si ricarica', () => {
     const { w, a, b, at } = setup();
     at(3600); w.sync();

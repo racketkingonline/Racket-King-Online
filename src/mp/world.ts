@@ -4,7 +4,7 @@
 // perdite, bottini, chiusure, città perse, sottomissioni (vassallaggio), tributi, indipendenza.
 // Stesse regole del playtest multiplayer (scripts/mp.ts), qui in forma riusabile e serializzabile per il server.
 import {
-  act as engineAct, autoDefend, newGame, owned, peekCity, power, rates, exposed, report, tick, log,
+  act as engineAct, autoDefend, migrate, newGame, owned, peekCity, power, rates, exposed, report, tick, log,
   type Action, type GameState, type MissionKind, type Result, type Squad,
 } from '../engine/engine';
 import { M } from '../i18n';
@@ -379,6 +379,35 @@ export class World {
       for (const id of Object.keys(sl.proxies)) { const o = this.owner.get(id); if (o === undefined || o === sl.id || this.protectedFrom(sl, o)) this.dropProxy(sl, id); else this.refreshProxy(sl, id); }
       for (const c of Object.values(sl.s.cities)) if (c.owner === 'npc' && c.proxy === undefined) { const o = this.owner.get(c.id); if (o !== undefined && o !== sl.id) { if (this.protectedFrom(sl, o)) this.purgeCity(sl.s, c.id); else this.refreshProxy(sl, c.id); } }
     }
+  }
+
+  // ---------------------------------------------------------------- amministrazione
+  /** Sposta la capitale di un giocatore in un'altra città libera: edifici, uomini e influenza vengono con lui. */
+  relocate(sl: Slot, to: string): string | null {
+    if (this.owner.has(to)) return 'Quella città è già di un giocatore.';
+    const s = sl.s; const from = s.capital; const old = s.cities[from]; if (!old) return 'Il giocatore non ha una capitale.';
+    if (s.cities[to]?.proxy !== undefined) this.dropProxy(sl, to);
+    const fresh = newGame((Date.now() + sl.id * 7919) % 2147483647 | 0, to).cities[to];
+    fresh.lots = fresh.lots.map(() => null);
+    const keep = old.lots.filter(Boolean);
+    let i = 0; for (const l of keep) { while (i < fresh.lots.length && fresh.lots[i]) i++; if (i >= fresh.lots.length) break; fresh.lots[i++] = { ...l! }; }
+    for (const [u, n] of Object.entries(old.units)) fresh.units[u as UnitId] = n;
+    for (const [u, n] of Object.entries(old.guards)) if (n) fresh.units[u as UnitId] += n;
+    fresh.guards = {}; fresh.influence = old.influence; fresh.payroll = old.payroll; fresh.heat = 0; fresh.heatSpike = 0;
+    fresh.unitQueue = old.unitQueue; fresh.buildQueue = old.buildQueue && old.buildQueue.lot < fresh.lots.length && !fresh.lots[old.buildQueue.lot] ? old.buildQueue : null;
+    fresh.since = old.since; fresh.gang.nextAttackAt = old.gang.nextAttackAt; fresh.turf = {}; fresh.protect = {}; fresh.tileWarn = {};
+    delete s.cities[from]; delete s.cities[to];
+    s.cities[to] = fresh; s.capital = to;
+    if (s.mayor?.city === from) s.mayor = null;
+    for (const m of s.missions) { if (m.from === from) m.from = to; }
+    s.missions = s.missions.filter(m => m.to !== from || m.kind === 'transfer');
+    for (const m of s.missions) if (m.to === from) m.to = to;
+    this.setOwner(from, null); this.setOwner(to, sl.id);
+    migrate(s);
+    log(s, 'info', M('Ti sei trasferito a {city}: edifici, uomini e influenza sono venuti con te.', { city: cityName(to) }), to);
+    sl.history.push({ t: this.now(), what: 'trasferito', city: to });
+    this.onChange(sl.id);
+    return null;
   }
 
   // ---------------------------------------------------------------- viste pubbliche

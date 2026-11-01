@@ -77,6 +77,12 @@ export class Game {
     return sl;
   }
 
+  /** Modifica dall'amministrazione: porta il giocatore all'ora del server, applica, salva e avvisa il client. */
+  edit(id: number, fn: (s: Slot['s']) => void) {
+    const sl = this.world.get(id); this.world.advance(sl); fn(sl.s);
+    this.dirty.add(id); this.schedulePush(id, true); void this.save();
+  }
+
   // ---------------------------------------------------------------- connessioni
   attach(ws: WebSocket, playerId: number) {
     const c: Conn = { ws, playerId, lastPush: 0, pending: false, actions: [] };

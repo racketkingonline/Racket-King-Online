@@ -11,6 +11,7 @@ import { openDb } from './db';
 import { Auth } from './auth';
 import { Game } from './game';
 import { alphaRoutes } from './alpha';
+import { playerAdminRoutes } from './admin-players';
 import formbody from '@fastify/formbody';
 
 const PORT = Number(process.env.PORT ?? 8080);
@@ -38,6 +39,7 @@ async function main() {
   await app.register(formbody);
   auth.routes(app);
   alphaRoutes(app, db);
+  playerAdminRoutes(app, db, game);
 
   app.get('/api/health', async () => game.health());
 

@@ -154,4 +154,5 @@ export const EN_ONLINE: Record<string, string> = {
   "Benvenuto nella closed alpha": "Welcome to the closed alpha",
   "Questo dominio non riceve email: controlla l'indirizzo.": "This domain doesn't receive email: check the address.",
   "Serve il consenso per ricevere l'invito.": "We need your consent to send you the invite.",
+  "Ti sei trasferito a {city}: edifici, uomini e influenza sono venuti con te.": "You moved to {city}: your buildings, people and influence came with you.",
 };

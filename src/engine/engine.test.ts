@@ -153,7 +153,7 @@ describe('motore', () => {
   it('la conquista eredita il 20% di influenza e calore nello stesso stato', () => {
     const s = newGame(11); const t = npc(s);
     home(s).units.enforcer = 250; home(s).influence = 300; home(s).heat = 100; home(s).gang.nextAttackAt = 1e12;
-    act(s, { t: 'mission', kind: 'assault', from: s.capital, to: t.id, units: { enforcer: 250 }, lot: whereIs(t, 'qg')!.lot });
+    home(s).units.delfino = 1; act(s, { t: 'mission', kind: 'assault', from: s.capital, to: t.id, units: { enforcer: 250, delfino: 1 }, lot: whereIs(t, 'qg')!.lot });
     const arrive = s.missions[0].arriveAt;
     tick(s, arrive - s.time + 1);
     expect(t.owner).toBe('player');
@@ -162,30 +162,75 @@ describe('motore', () => {
     expect(fortDefense(t)).toBeGreaterThan(0);
   });
 
-  it('le bande del server hanno quasi la stessa forza ovunque e in ogni momento', () => {
+  it('le bande del server sono deboli e uguali nel tempo: 20-30 picchiatori, 5-10 soldati, 3-6 enforcer', () => {
     const s = newGame(51);
     const ids = [...CITIES_BY_STATE[def(s.capital).stateIdx].slice(0, 40).map(String)];
-    const early = ids.map(id => fortDefense(peekCity(s, id)));
-    s.time = 60 * 86400;
-    const late = ids.filter(id => !s.cities[id]).map(id => fortDefense(peekCity(s, id)));
-    const all = [...early, ...late]; const lo = Math.min(...all), hi = Math.max(...all);
-    expect(hi / lo).toBeLessThan(1.2);
-    expect(lo).toBeGreaterThan(K.npcMen * 0.85);
+    const check = (id: string) => { const g = peekCity(s, id).gang.units;
+      expect(g.picchiatori).toBeGreaterThanOrEqual(20); expect(g.picchiatori).toBeLessThanOrEqual(30);
+      expect(g.soldati).toBeGreaterThanOrEqual(5); expect(g.soldati).toBeLessThanOrEqual(10);
+      expect(g.enforcer).toBeGreaterThanOrEqual(3); expect(g.enforcer).toBeLessThanOrEqual(6); };
+    ids.forEach(check);
+    s.time = 60 * 86400; ids.filter(id => !s.cities[id]).forEach(check);
+    const f = ids.map(id => fortDefense(peekCity(s, id)));
+    expect(Math.min(...f)).toBeGreaterThan(150); expect(Math.max(...f)).toBeLessThan(400);
   });
 
-  it('dopo una conquista, una settimana senza attaccare né comprare città delle bande', () => {
+  it('senza Delfino niente conquista; col Delfino la città è tua e lui resta a reggerla', () => {
     const s = newGame(11); const t = npc(s);
-    home(s).units.enforcer = 250; home(s).influence = 300; home(s).gang.nextAttackAt = 1e12; s.res.sporco = 1e7;
-    act(s, { t: 'mission', kind: 'assault', from: s.capital, to: t.id, units: { enforcer: 250 }, lot: whereIs(t, 'qg')!.lot });
+    home(s).units.soldati = 120; home(s).influence = 300; home(s).gang.nextAttackAt = 1e12; s.res.sporco = 1e7;
+    const lot = whereIs(t, 'qg')!.lot;
+    const no = act(s, { t: 'mission', kind: 'assault', from: s.capital, to: t.id, units: { soldati: 120 }, lot });
+    expect(no.ok).toBe(false); expect(no.m?.k ?? no.msg).toMatch(/Delfino/);
+    expect(act(s, { t: 'recruit', city: s.capital, id: 'delfino', n: 1 }).ok).toBe(true);
+    expect(act(s, { t: 'recruit', city: s.capital, id: 'delfino', n: 1 }).ok).toBe(false);
+    tick(s, 36 * H + 60);
+    expect(home(s).units.delfino).toBe(1);
+    home(s).units.soldati = 120;
+    expect(act(s, { t: 'mission', kind: 'raid', from: s.capital, to: t.id, units: { soldati: 10, delfino: 1 } }).ok).toBe(false);
+    expect(act(s, { t: 'mission', kind: 'assault', from: s.capital, to: t.id, units: { soldati: 120, delfino: 1 }, lot }).ok).toBe(true);
     tick(s, s.missions[0].arriveAt - s.time + 1);
     expect(t.owner).toBe('player');
+    expect(t.units.delfino).toBe(1); expect(home(s).units.delfino).toBe(0);
+    expect(rates(s).upkeepSporco).toBeGreaterThanOrEqual(3000);
+    // niente tregua: si può subito colpire un'altra banda
     const other = CITIES_BY_STATE[def(s.capital).stateIdx].map(String).find(id => id !== s.capital && id !== t.id)!;
     home(s).units.soldati = 50;
-    const no = act(s, { t: 'mission', kind: 'raid', from: s.capital, to: other, units: { soldati: 10 } });
-    expect(no.ok).toBe(false); expect(no.m?.k).toMatch(/appena conquistato/);
-    expect(act(s, { t: 'mission', kind: 'spy', from: s.capital, to: other, units: { informatori: 0 } }).m?.k ?? '').not.toMatch(/appena conquistato/);
-    s.time += 7 * 86400 + 60;
-    expect(act(s, { t: 'mission', kind: 'raid', from: s.capital, to: other, units: { soldati: 10 } }).m?.k ?? '').not.toMatch(/appena conquistato/);
+    expect(act(s, { t: 'mission', kind: 'raid', from: s.capital, to: other, units: { soldati: 50 } }).ok).toBe(true);
+    // il Delfino reggente non si muove
+    t.units.soldati = 10;
+    expect(act(s, { t: 'mission', kind: 'assault', from: t.id, to: other, units: { soldati: 10, delfino: 1 } }).ok).toBe(false);
+  });
+
+  it('se l\'assalto fallisce il Delfino muore', () => {
+    const s = newGame(12); const t = npc(s);
+    home(s).units.picchiatori = 3; home(s).units.delfino = 1; home(s).influence = 300; home(s).gang.nextAttackAt = 1e12; s.res.sporco = 1e7;
+    expect(act(s, { t: 'mission', kind: 'assault', from: s.capital, to: t.id, units: { picchiatori: 3, delfino: 1 }, lot: whereIs(t, 'qg')!.lot }).ok).toBe(true);
+    tick(s, 24 * H);
+    expect(t.owner).toBe('npc'); expect(home(s).units.delfino).toBe(0);
+  });
+
+  it('colpo alla cassa: la stessa città si ripulisce una volta al giorno', () => {
+    const s = newGame(14); const t = npc(s);
+    home(s).units.soldati = 100; home(s).gang.nextAttackAt = 1e12; s.res.sporco = 1e7;
+    expect(act(s, { t: 'mission', kind: 'raid', from: s.capital, to: t.id, units: { soldati: 50 } }).ok).toBe(true);
+    tick(s, s.missions[0].arriveAt - s.time + 1);
+    const no = act(s, { t: 'mission', kind: 'raid', from: s.capital, to: t.id, units: { soldati: 10 } });
+    expect(no.ok).toBe(false);
+    tick(s, 24 * H);
+    expect(act(s, { t: 'mission', kind: 'raid', from: s.capital, to: t.id, units: { soldati: 10 } }).ok).toBe(true);
+  });
+
+  it('la capitale si sposta in una città conquistata, una volta a settimana; il Delfino lì si fa da parte', () => {
+    const s = newGame(15); const t = npc(s); const old = s.capital;
+    t.owner = 'player'; t.units.delfino = 1;
+    expect(act(s, { t: 'setCapital', city: t.id }).ok).toBe(true);
+    expect(s.capital).toBe(t.id); expect(t.units.delfino).toBe(0);
+    expect(act(s, { t: 'setCapital', city: old }).ok).toBe(false);
+    tick(s, 7 * 24 * H + 60);
+    expect(act(s, { t: 'setCapital', city: old }).ok).toBe(true);
+    s.cities[old].taken = true; s.capitalMovedAt = -1e9;
+    expect(act(s, { t: 'setCapital', city: t.id }).ok).toBe(true);
+    expect(act(s, { t: 'setCapital', city: old }).ok).toBe(false);
   });
 
   it('per uscire dallo stato serve influenza nella città di partenza', () => {
@@ -209,7 +254,7 @@ describe('motore', () => {
 
   it('l\'acquisizione richiede una banda indebolita e influenza nella città che paga', () => {
     const s = newGame(15); const t = npc(s);
-    s.res.pulito = 1e6; home(s).influence = 300;
+    s.res.pulito = 1e6; home(s).influence = 300; home(s).units.delfino = 1;
     expect(act(s, { t: 'acquire', from: s.capital, city: t.id }).ok).toBe(false);
     t.gang.share = 0.4;
     expect(act(s, { t: 'acquire', from: s.capital, city: t.id }).ok).toBe(true);
@@ -251,7 +296,7 @@ describe('motore', () => {
   it('dopo la conquista la città è tutta tua', () => {
     const s = newGame(24); const t = npc(s);
     home(s).units.enforcer = 250; home(s).gang.nextAttackAt = 1e12;
-    act(s, { t: 'mission', kind: 'assault', from: s.capital, to: t.id, units: { enforcer: 250 }, lot: whereIs(t, 'qg')!.lot });
+    home(s).units.delfino = 1; act(s, { t: 'mission', kind: 'assault', from: s.capital, to: t.id, units: { enforcer: 250, delfino: 1 }, lot: whereIs(t, 'qg')!.lot });
     tick(s, s.missions[0].arriveAt - s.time + 1);
     expect(t.owner).toBe('player');
     expect(t.gang.share).toBe(0);
@@ -319,9 +364,9 @@ describe('motore', () => {
 
   it('assalto sull\'edificio sbagliato: niente conquista, banda in allerta', () => {
     const s = newGame(33); const t = npc(s); const c = home(s);
-    c.units.enforcer = 250; c.gang.nextAttackAt = 1e12;
+    c.units.enforcer = 250; c.units.delfino = 1; c.gang.nextAttackAt = 1e12;
     const wrong = t.lots.findIndex((l, i) => l && i !== whereIs(t, 'qg')!.lot);
-    act(s, { t: 'mission', kind: 'assault', from: c.id, to: t.id, units: { enforcer: 80 }, lot: wrong });
+    act(s, { t: 'mission', kind: 'assault', from: c.id, to: t.id, units: { enforcer: 80, delfino: 1 }, lot: wrong });
     tick(s, s.missions[0].arriveAt - s.time + 1);
     expect(t.owner).toBe('npc');
     expect(t.alertUntil).toBeGreaterThan(s.time);
@@ -329,9 +374,9 @@ describe('motore', () => {
 
   it('conquistando il QG le attività della banda passano a te', () => {
     const s = newGame(34); const t = npc(s); const c = home(s);
-    c.units.enforcer = 300; c.gang.nextAttackAt = 1e12;
+    c.units.enforcer = 300; c.units.delfino = 1; c.gang.nextAttackAt = 1e12;
     const theirs = t.lots.filter(Boolean).length;
-    act(s, { t: 'mission', kind: 'assault', from: c.id, to: t.id, units: { enforcer: 300 }, lot: whereIs(t, 'qg')!.lot });
+    act(s, { t: 'mission', kind: 'assault', from: c.id, to: t.id, units: { enforcer: 300, delfino: 1 }, lot: whereIs(t, 'qg')!.lot });
     tick(s, s.missions[0].arriveAt - s.time + 1);
     expect(t.owner).toBe('player');
     expect(t.lots.filter(Boolean).length).toBe(theirs);
@@ -473,7 +518,7 @@ function busyGame(seed: number) {
   for (let i = 0; i < 2; i++) { run({ t: 'upgrade', city: s.capital, lot: me(s).lots.findIndex(l => l?.id === 'armeria') }); go(6 * H); }
   build('racket', 'usura');
   for (const r of RESEARCH) { run({ t: 'research', id: r.id }); run({ t: 'cancel', queue: 'research' }); run({ t: 'research', id: r.id }); go(8 * H); }
-  for (const u of UNITS) run({ t: 'recruit', city: s.capital, id: u.id, n: u.id === 'soldati' ? 60 : u.id === 'enforcer' ? 20 : u.id === 'corrieri' ? 1 : 8 });
+  for (const u of UNITS) run({ t: 'recruit', city: s.capital, id: u.id, n: u.id === 'delfino' ? 1 : u.id === 'soldati' ? 60 : u.id === 'enforcer' ? 20 : u.id === 'corrieri' ? 1 : 8 });
   go(24 * H);
   run({ t: 'payroll', city: s.capital, level: 2 }); run({ t: 'police', city: s.capital, id: 'bustarella' }); run({ t: 'police', city: s.capital, id: 'bustarella' });
   run({ t: 'police', city: s.capital, id: 'occhio' }); run({ t: 'police', city: s.capital, id: 'soffiata', target: near()[1] });
@@ -488,10 +533,11 @@ function busyGame(seed: number) {
       run({ t: 'mission', kind: 'raid', from: s.capital, to, units: { picchiatori: Math.min(3, me(s).units.picchiatori), corrieri: Math.min(1, me(s).units.corrieri) } });
       const lots = peekCity(s, to).gang.intel?.lots; const lot = lots ? lots.findIndex(l => l && !(l.kind === 'building' && l.id === 'qg')) : -1;
       if (lot >= 0) run({ t: 'mission', kind: 'strike', from: s.capital, to, units: { soldati: Math.min(5, me(s).units.soldati) }, lot });
-      run({ t: 'mission', kind: 'assault', from: s.capital, to, units: { soldati: Math.min(round ? 30 : 2, me(s).units.soldati), enforcer: Math.min(round ? 15 : 0, me(s).units.enforcer) } });
+      run({ t: 'mission', kind: 'assault', from: s.capital, to, units: { soldati: Math.min(round ? 30 : 2, me(s).units.soldati), enforcer: Math.min(round ? 15 : 0, me(s).units.enforcer), delfino: Math.min(1, me(s).units.delfino) } });
+      run({ t: 'setCapital', city: owned(s).find(c => c.id !== s.capital)?.id ?? s.capital });
     }
     go(12 * H);
-    for (const u of UNITS) run({ t: 'recruit', city: s.capital, id: u.id, n: u.id === 'soldati' ? 40 : u.id === 'enforcer' ? 15 : 5 });
+    for (const u of UNITS) run({ t: 'recruit', city: s.capital, id: u.id, n: u.id === 'delfino' ? 1 : u.id === 'soldati' ? 40 : u.id === 'enforcer' ? 15 : 5 });
     s.res.sporco += 1e6; s.res.pulito += 1e6;
     const other = owned(s).find(c => c.id !== s.capital);
     if (other) run({ t: 'mission', kind: 'transfer', from: s.capital, to: other.id, units: { picchiatori: 1 } });

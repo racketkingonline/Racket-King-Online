@@ -6,8 +6,6 @@ import {
   rates, researchCost, tick, upgradeCost, type CityState, type GameState,
 } from '../src/engine/engine';
 import { K, RESEARCH } from '../src/engine/data';
-if (process.env.NPC_MEN) K.npcMen = Number(process.env.NPC_MEN);
-if (process.env.NPC_FORT) K.npcFort = Number(process.env.NPC_FORT);
 let firstConquest = 0;
 
 const strategy = process.argv[2] ?? 'bilanciata';

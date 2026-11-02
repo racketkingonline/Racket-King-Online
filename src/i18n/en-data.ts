@@ -158,6 +158,9 @@ export const EN_DATA: Record<string, string> = {
   'Guardie giurate': 'Security guards',
   'guardie giurate': 'security guards',
   'Proteggono i front senza calore, ma sono deboli.': 'They guard your fronts without drawing heat, but they are weak.',
+  'Delfino': 'Heir',
+  'delfino': 'heirs',
+  "L'erede che governa le città che prendi. Si arruola solo nella capitale, uno alla volta.": 'The heir who runs the cities you take. Recruited only in your capital, one at a time.',
 
   // una sola unità (squadre e reclutamenti: "1 soldati" → "1 soldier")
   '1 picchiatori': '1 thug',
@@ -168,6 +171,7 @@ export const EN_DATA: Record<string, string> = {
   '1 avvocati': '1 lawyer',
   '1 contabili': '1 accountant',
   '1 guardie giurate': '1 security guard',
+  '1 delfino': '1 heir',
 
   // ---------- requisiti speciali
   'Licenza per il casinò (municipio)': 'Casino license (City Hall)',

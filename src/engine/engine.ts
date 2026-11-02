@@ -38,6 +38,10 @@ export type Gang = {
 export type CityState = {
   /** Multiplayer: città di un altro giocatore vista da qui (id del proprietario). Non cresce e non attacca da sola. */
   proxy?: number;
+  /** Multiplayer: la città vista è la capitale del suo proprietario (prenderla lo sottomette: non serve il Delfino). */
+  proxyCapital?: boolean;
+  /** Presa a un altro giocatore: non può diventare la tua capitale. */
+  taken?: boolean;
   id: string; owner: 'player' | 'npc'; since: number;
   gang: Gang;
   lots: (LotUse | null)[];
@@ -92,8 +96,9 @@ export type GameState = {
   policeShift?: number;
   /** Contante pulito investito in attività di facciata (immobili, appalti): aumenta tutte le rendite, con rendimenti decrescenti. */
   investments?: number;
-  /** Ultima conquista (per la settimana di tregua con le bande) e momento d'ingresso nel mondo. */
+  /** Ultima conquista e ultimo spostamento della capitale; momento d'ingresso nel mondo. */
   lastConquest?: number;
+  capitalMovedAt?: number;
   born?: number;
   /** Ritratto scelto dal giocatore (id dell'illustrazione) e introduzione già vista. */
   avatar?: string;
@@ -132,6 +137,7 @@ export type Action =
   | { t: 'invest'; amount: number }
   | { t: 'cancelUnits'; city: string; index: number }
   | { t: 'recall'; mission: number }
+  | { t: 'setCapital'; city: string }
   | { t: 'cancelMove'; city: string }
   | { t: 'cancelCampaign'; city: string };
 
@@ -221,8 +227,11 @@ export function newGame(seed = (Date.now() % 2147483647) | 0, cityId?: string): 
     { city: start.name, county: start.county, state: start.state, h: K.protectionHours, lots: lotCount(start.id) }), start.id);
   return state;
 }
-function seedGang(defense: number): Squad {
-  return { picchiatori: Math.round((defense * 0.6) / 3), soldati: Math.round((defense * 0.4) / 8) };
+/** La guarnigione di una banda del server: poche decine di uomini, fissi per città (variano entro le forbici di K.npcSquad). */
+export function npcSquad(id: string): Squad {
+  const sq: Squad = {};
+  for (const [u, r] of Object.entries(K.npcSquad)) { const [lo, hi] = r!; sq[u as UnitId] = Math.round((lo + (hi - lo) * hash01('npc:' + id + ':' + u)) * SEASON.npc); }
+  return sq;
 }
 
 /** Aggiorna un salvataggio di una versione precedente (stessa struttura, campi nuovi mancanti). */
@@ -230,6 +239,8 @@ export function migrate(s: GameState): GameState {
   s.reports ??= []; s.nextReportId ??= 1; s.mayor ??= null;
   for (const c of Object.values(s.cities)) {
     c.turf ??= {}; c.protect ??= {}; c.tileWarn ??= {}; c.cooldowns ??= {}; c.flags ??= {};
+    c.units.delfino ??= 0;
+    if (c.owner === 'npc' && c.proxy === undefined) { const cap = npcSquad(c.id); for (const u of Object.keys(c.gang.units) as UnitId[]) c.gang.units[u] = Math.min(c.gang.units[u] ?? 0, cap[u] ?? 0); }
     c.influence ??= 0; c.payroll ??= 0; c.move ??= null; c.campaign ??= null; c.alertUntil ??= 0;
     while (c.lots.length < allLotCount(c.id)) c.lots.push(null);
     if (c.owner === 'player') { c.gang.share = 0; c.gang.units = {}; if (c.gang.incoming && !c.gang.incoming.from) c.gang.incoming = null; }
@@ -244,7 +255,7 @@ export function peekCity(s: GameState, id: string): CityState {
   const have = s.cities[id]; if (have) return have;
   const d = def(id); const days = s.time / (24 * H); const mult = 1;
   const c = emptyCity(id, 'npc', {
-    name: gangName(id), units: seedGang(npcTarget(id)), stash: Math.round(Math.min(500000 * d.pop, (8000 + 12000 * days) * d.pop)),
+    name: gangName(id), units: npcSquad(id), stash: Math.round(Math.min(500000 * d.pop, (8000 + 12000 * days) * d.pop)),
     share: 1, mult, nextAttackAt: 1e15, lastGrowAt: Math.floor(s.time / (6 * H)) * 6 * H, incoming: null, intel: null,
   });
   gangAssets(c, days);
@@ -333,7 +344,7 @@ export const payrollCost = (level: number): Cost => ({ sporco: Math.round(K.payr
 const maxBuilding = (s: GameState, id: BuildingId) => Math.max(0, ...owned(s).map(x => buildingLevel(x, id)));
 export function buildHours(c: CityState, cost: Cost) { return Math.max(10 / H, totalCost(cost) / (K.buildDivisor * (1 + buildingLevel(c, 'qg')))); }
 export function researchHours(s: GameState, c: Cost) { return Math.max(10 / H, totalCost(c) / (K.buildDivisor * 0.8 * (1 + 0.5 * maxBuilding(s, 'qg')))); }
-export function unitHours(c: CityState, id: UnitId) { const d = UNITS.find(u => u.id === id)!; return Math.max(5 / H, totalCost(d.cost) / (K.unitDivisor * (1 + buildingLevel(c, 'armeria')))); }
+export function unitHours(c: CityState, id: UnitId) { const d = UNITS.find(u => u.id === id)!; if (d.hours) return d.hours; return Math.max(5 / H, totalCost(d.cost) / (K.unitDivisor * (1 + buildingLevel(c, 'armeria')))); }
 
 /** I soldi sono dell'impero; l'influenza è della città che agisce. */
 export const canAfford = (s: GameState, c: Cost, city?: CityState) =>
@@ -836,7 +847,7 @@ export const travelHours = (s: GameState, from: string, to: string) =>
   Math.max(0.1, (K.travelBase + distance(from, to) / K.travelSpeed) * (1 - 0.1 * s.research.logistica));
 export const gangDefense = (c: CityState) => power(null, c.gang.units, 'def') + 20;
 export const fortDefense = (c: CityState) => power(null, c.gang.units, 'def') + (c.proxy === undefined && c.owner === 'npc'
-  ? K.npcFort * npcSpread(c.id)
+  ? K.npcFort
   : K.fortBase + K.fortPerPop * def(c.id).pop + 10 * (whereIs(c, 'qg')?.level ?? 0));
 
 // ---------------------------------------------------------------- rapporti di battaglia
@@ -866,7 +877,7 @@ function missions(s: GameState) {
       const home = s.cities[m.from];
       const dest = home?.owner === 'player' ? home : s.cities[s.capital]?.owner === 'player' ? s.cities[s.capital] : owned(s)[0];
       if (!dest) { m.stay = true; continue; }
-      for (const [id, n] of Object.entries(m.units)) dest.units[id as UnitId] += n ?? 0;
+      for (const [id, n] of Object.entries(m.units)) (id === 'delfino' && s.cities[s.capital]?.owner === 'player' ? s.cities[s.capital] : dest).units[id as UnitId] += n ?? 0;
       s.res.sporco += m.loot; s.stats.looted += m.loot;
       const back = Object.values(m.units).reduce((a, n) => a + (n ?? 0), 0);
       if (m.kind === 'raid' || m.kind === 'assault') log(s, back ? 'info' : 'bad', back
@@ -886,6 +897,7 @@ function resolveMission(s: GameState, m: Mission) {
   }
   if (t.owner === 'player') { log(s, 'info', M('{city} è già tua: la crew torna indietro.', { city: tn }), t.id); return; }
   if (m.kind === 'spy') return spy(s, m, t);
+  if (m.kind === 'raid') t.cooldowns.razzia = s.time + K.raidCooldownHours * H;
   const alert = t.alertUntil > s.time ? K.alertMult : 1;
   const hadIntel = !!g.intel && s.time - g.intel.at < 24 * H;
   const sent = squadMsg(m.units); const attP = power(s, m.units, 'att');
@@ -901,7 +913,9 @@ function resolveMission(s: GameState, m: Mission) {
   const isConquest = m.kind === 'assault' && qgHere;
   const defTot = (isConquest ? fortDefense(t) : gangDefense(t)) * alert;
   const res = battle(s, attP, defTot);
+  const delf = m.units.delfino ?? 0; delete m.units.delfino;
   const lostA = applyLoss(s, m.units, res.attLoss);
+  if (delf && res.attWins) m.units.delfino = delf;
   const lostD = applyLoss(s, g.units, res.defLoss);
   const kind = (m.kind === 'assault' ? 'assault' : m.kind === 'strike' ? 'strike' : 'raid') as BattleReport['kind'];
   const base = { kind, city: t.id, att: Math.round(res.a), def: Math.round(res.d), defMen: Math.round(men), defFort: Math.round(defTot - men), lostMine: lostA, lostTheirs: lostD };
@@ -918,6 +932,7 @@ function resolveMission(s: GameState, m: Mission) {
   if (!res.attWins) {
     if (m.kind === 'assault') t.alertUntil = s.time + K.alertHours * H;
     log(s, 'bad', M('{what} fallito a {city} contro {gang}. Perdite: tue {a}, loro {b}.', { what, city: tn, gang: gangMsg(g.name), ...losses }), t.id);
+    if (delf) { lines.push(N('Il tuo Delfino è rimasto sul campo: per riprovare dovrai arruolarne un altro.')); log(s, 'bad', M('Il tuo Delfino è caduto a {city}.', { city: tn }), t.id); }
     report(s, { ...base, title: M('{what} fallito a {city}', { what, city: tn }), win: false, loot: 0, lines, advice: shortfall(s, attP, defTot, hadIntel) });
     return;
   }
@@ -926,7 +941,8 @@ function resolveMission(s: GameState, m: Mission) {
     conquer(s, t, m, true);
     report(s, { ...base, title: M('{city} è tua', { city: tn }), win: true, loot: 0,
       lines: [...lines, N('Hai preso il loro quartier generale: la banda lascia la città e le sue attività passano a te (a metà livello).'),
-        M('Parti con {inf} di influenza e {heat} di calore ereditati da {from}. I tuoi uomini restano in città.', { inf: Math.round(t.influence), heat: Math.round(t.heat), from: cityName(m.from) })],
+        M('Parti con {inf} di influenza e {heat} di calore ereditati da {from}. I tuoi uomini restano in città.', { inf: Math.round(t.influence), heat: Math.round(t.heat), from: cityName(m.from) }),
+        M('Il tuo Delfino ora regge {city}: costa {m}/h finché la tieni.', { city: tn, m: { money: 3000 } })],
       advice: owned(s).length > cityLimit(s) ? M('Gestisci {n} città ma il tuo limite è {max}: tutte rendono meno. Studia Gestione.', { n: owned(s).length, max: cityLimit(s) }) : N('Metti un po\' di difesa in città: le bande vicine se ne accorgeranno.') });
     log(s, 'good', M('{city} è tua: preso il quartier generale di {gang}. Perdite: tue {a}, loro {b}.', { city: tn, gang: gangMsg(gname), ...losses }), t.id);
     return;
@@ -1021,10 +1037,18 @@ export const squadText = (sq: Squad, lang: Lang = 'it') => render(squadMsg(sq), 
 // ---------------------------------------------------------------- bande NPC
 export function rivalTarget(days: number) { return Math.min(K.rivalCap, K.rivalBase + K.rivalGrowth * days ** K.rivalExp) * SEASON.npc; }
 /** La forza (difesa degli uomini) di una banda del server: uguale per tutte le città, con una piccola variazione fissa per città. */
-export const npcSpread = (id: string) => 1 + K.npcSpread * (2 * hash01('npc:' + id) - 1);
-export function npcTarget(id: string) { return K.npcMen * npcSpread(id) * SEASON.npc; }
-/** Secondi di tregua che restano prima di poter attaccare o comprare una città di una banda (0 = si può). */
-export function npcCooldown(s: GameState) { return s.lastConquest === undefined ? 0 : Math.max(0, s.lastConquest + K.conquestCooldownDays * 86400 - s.time); }
+export function npcTarget(id: string) { return power(null, npcSquad(id), 'def'); }
+/** Secondi prima di poter spostare di nuovo la capitale (0 = si può). */
+export function capitalCooldown(s: GameState) { return s.capitalMovedAt === undefined ? 0 : Math.max(0, s.capitalMovedAt + K.capitalMoveDays * 86400 - s.time); }
+/** Il Delfino serve per prendere una città, tranne la capitale di un altro giocatore (il boss sconfitto diventa tuo vassallo). */
+export const needsDelfino = (c: CityState) => !(c.proxy !== undefined && c.proxyCapital);
+/** Delfini liberi (nella capitale) e reggenti (nelle altre città). */
+export function delfini(s: GameState) {
+  let free = 0, regents = 0;
+  for (const c of owned(s)) { if (c.id === s.capital) free += c.units.delfino; else regents += Math.min(1, c.units.delfino); }
+  const training = owned(s).some(c => c.unitQueue.some(j => j.id === 'delfino'));
+  return { free, regents, training };
+}
 const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 export { cap as capitalize };
 
@@ -1053,12 +1077,9 @@ function gangStep(s: GameState, c: CityState, r: Rates) {
   while (c.owner === 'npc' && c.proxy === undefined && s.time - g.lastGrowAt >= 6 * H) {
     g.lastGrowAt += 6 * H;
     const days = g.lastGrowAt / (24 * H);
-    const deficit = npcTarget(c.id) - power(null, g.units, 'def');
-    if (deficit > 0) {
-      const add = deficit * 0.25;
-      g.units.picchiatori = (g.units.picchiatori ?? 0) + Math.round((add * 0.5) / 3);
-      g.units.soldati = (g.units.soldati ?? 0) + Math.round((add * 0.4) / 8);
-      g.units.enforcer = (g.units.enforcer ?? 0) + sround(s, (add * 0.1) / 15);
+    for (const [u, want] of Object.entries(npcSquad(c.id))) {
+      const have = g.units[u as UnitId] ?? 0;
+      if (have < want!) g.units[u as UnitId] = have + Math.ceil((want! - have) * 0.25);
     }
     g.stash = Math.min(500000 * d.pop, g.stash + (3000 + 2000 * days) * (c.owner === 'npc' ? d.pop : 1));
     const occ = c.lots.filter((l): l is LotUse => !!l && l.level < 2 + days);
@@ -1071,15 +1092,11 @@ function gangStep(s: GameState, c: CityState, r: Rates) {
   const window = Math.min(K.warningMaxMin, K.warningBaseMin + K.warningPerInformer * c.units.informatori) * 60;
   if (!g.incoming && s.time >= g.nextAttackAt - window) {
     const kind = c.lots.some(l => l?.kind === 'front') && rand(s) < 0.3 ? 'sabotaggio' : 'razzia';
-    const units: Squad = {};
-    for (const [id, k] of Object.entries(A.units)) units[id as UnitId] = Math.floor((k ?? 0) * between(s, 0.35, 0.6));
-    // La banda manda quanto basta per mettere alla prova la tua difesa, non tutto quello che ha:
-    // tra il 60% e il 125% della difesa attuale, con un minimo che cresce coi giorni.
+    // La banda (con i suoi alleati della regione) manda quanto basta per mettere alla prova la tua difesa:
+    // tra il 60% e il 125% della difesa attuale, con un minimo che cresce coi giorni. Non dipende dalla guarnigione della città vicina.
     const defNow = kind === 'razzia' ? power(s, c.units, 'def') + 10 * buildingLevel(c, 'qg') : power(s, { ...c.guards, guardie: c.units.guardie }, 'def') + 5;
-    const want = Math.max(K.attackFloorBase + K.attackFloorPerDay * (s.time - (s.born ?? 0)) / (24 * H), defNow * between(s, K.attackMin, K.attackMax));
-    const full = power(null, units, 'att');
-    if (full > want) { const f = want / full; for (const id of Object.keys(units) as UnitId[]) units[id] = Math.floor((units[id] ?? 0) * f); units.picchiatori = Math.max(1, units.picchiatori ?? 0); }
-    for (const [id, k] of Object.entries(units)) A.units[id as UnitId] = (A.units[id as UnitId] ?? 0) - (k ?? 0);
+    const want = Math.min(K.rivalCap, Math.max(K.attackFloorBase + K.attackFloorPerDay * (s.time - (s.born ?? 0)) / (24 * H), defNow * between(s, K.attackMin, K.attackMax)));
+    const units: Squad = { picchiatori: Math.max(1, Math.round((want * 0.5) / 2)), soldati: Math.round((want * 0.35) / 8), enforcer: Math.round((want * 0.15) / 25) };
     g.incoming = { kind, units, arriveAt: g.nextAttackAt, from };
     autoDefend(s, c, power(null, units, 'att'), kind);
     const wp = { city: n, gang: gangMsg(A.name), from: cityName(from), units: squadMsg(units), min: Math.round((g.nextAttackAt - s.time) / 60) };
@@ -1103,7 +1120,6 @@ function gangStep(s: GameState, c: CityState, r: Rates) {
       for (const id of Object.keys(c.guards) as UnitId[]) { const l = sround(s, (c.guards[id] ?? 0) * res.defLoss); c.guards[id] = (c.guards[id] ?? 0) - l; lostD += l; }
       const l = sround(s, c.units.guardie * res.defLoss); c.units.guardie -= l; lostD += l;
     }
-    for (const [id, k] of Object.entries(inc.units)) A.units[id as UnitId] = (A.units[id as UnitId] ?? 0) + (k ?? 0);
     c.heatSpike += K.defendHeatSpike;
     if (!res.attWins) g.nextAttackAt += K.repelPauseHours * H;
     const gp = { city: n, gang: gangMsg(A.name), from: cityName(from), a: lostD, b: lostA };
@@ -1248,6 +1264,18 @@ export function act(s: GameState, a: Action): Result {
       if (a.index === 0 && c.unitQueue[0]) c.unitQueue[0].nextAt = s.time + c.unitQueue[0].per;
       return okm(j.done ? M('Arruolamento interrotto: restano i {n} già arruolati, i soldi degli altri tornano.', { n: j.done }) : N('Arruolamento annullato, soldi restituiti.'));
     }
+    case 'setCapital': {
+      const c = mine(a.city); if (!c) return fail('Questa città non è tua.');
+      if (c.id === s.capital) return fail('È già la tua capitale.');
+      if (c.taken) return fail('Una città presa a un altro boss non può diventare la tua capitale.');
+      if (capitalCooldown(s) > 0) return fail(M('La capitale si sposta una volta a settimana: riprova tra {d}.', { d: duration(capitalCooldown(s)) }));
+      const old = s.capital; s.capital = c.id; s.capitalMovedAt = s.time;
+      const retired = c.units.delfino > 0; if (retired) c.units.delfino -= 1;
+      log(s, 'good', retired
+        ? M('Ti trasferisci a {city}: ora è la tua capitale. Il Delfino che la reggeva si fa da parte (niente più stipendio). {old} resta tua, senza un reggente.', { city: cityName(c.id), old: cityName(old) })
+        : M('Ti trasferisci a {city}: ora è la tua capitale.', { city: cityName(c.id) }), c.id);
+      return { ok: true };
+    }
     case 'recall': {
       const m = s.missions.find(x => x.id === a.mission); if (!m) return fail('Missione non trovata.');
       if (m.resolved || s.time >= m.arriveAt) return fail('Sono già arrivati: ora tornano da soli.');
@@ -1277,6 +1305,11 @@ export function act(s: GameState, a: Action): Result {
       const d = UNITS.find(u => u.id === a.id)!;
       const n = Math.floor(a.n); if (n <= 0) return fail('Quanti?');
       const miss = missingReqMsg(s, c, d.req); if (miss.length) return fail(M('Serve: {list}.', { list: joinMsg(miss, ', ') }));
+      if (a.id === 'delfino') {
+        if (c.id !== s.capital) return fail('Il Delfino si arruola solo nella capitale.');
+        if (n !== 1) return fail('I Delfini si arruolano uno alla volta.');
+        if (delfini(s).training) return fail('Stai già arruolando un Delfino.');
+      }
       const cost = scale(d.cost, n);
       if (!canAfford(s, cost)) return fail('Non hai abbastanza soldi.');
       pay(s, cost);
@@ -1310,10 +1343,16 @@ export function act(s: GameState, a: Action): Result {
         sq[id as UnitId] = k;
       }
       if (!Object.keys(sq).length) return fail('Scegli chi mandare.');
+      if (sq.delfino) {
+        if (from.id !== s.capital) return fail(M('Il Delfino di {city} regge la città: non si muove.', { city: cityName(from.id) }));
+        if (a.kind !== 'assault') return fail('Il Delfino parte solo per un assalto: è lui che prenderà la città.');
+        if (sq.delfino > 1) return fail('Basta un Delfino per città.');
+      }
       if (a.kind === 'spy' && Object.keys(sq).some(k => k !== 'informatori')) return fail('A spiare vanno solo gli informatori.');
       if (hostile && power(null, sq, 'att') <= 0) return fail('Serve almeno qualcuno che sappia menare le mani.');
       if ((hostile || a.kind === 'spy') && to.owner === 'player') return fail('Questa città è tua: non ci sono bande.');
-      if (hostile && to.owner === 'npc' && to.proxy === undefined && npcCooldown(s) > 0) return fail(M('Hai appena conquistato una città: per {d} le bande ti lasciano in pace, e tu lasci in pace loro.', { d: duration(npcCooldown(s)) }));
+      if (a.kind === 'assault' && needsDelfino(to) && !sq.delfino) return fail('Per prendere una città serve un Delfino che la governi: arruolalo nella capitale e mandalo con l\'assalto.');
+      if (a.kind === 'raid' && (to.cooldowns.razzia ?? 0) > s.time) return fail(M('Quella cassa l\'hai appena ripulita: riprova tra {d}.', { d: duration((to.cooldowns.razzia ?? 0) - s.time) }));
       if (a.kind === 'strike') {
         const seen = to.gang.intel?.lots;
         if (!seen) return fail('Prima spia la città: si colpisce solo quello che hai visto.');
@@ -1337,7 +1376,7 @@ export function act(s: GameState, a: Action): Result {
       if (!validCity(a.city)) return fail('Città sconosciuta.');
       const c = peekCity(s, a.city);
       if (c.owner !== 'npc' || c.proxy !== undefined) return fail('Si possono comprare solo le città delle bande.');
-      if (npcCooldown(s) > 0) return fail(M('Hai appena conquistato una città: per {d} le bande ti lasciano in pace, e tu lasci in pace loro.', { d: duration(npcCooldown(s)) }));
+      if (from.id !== s.capital || from.units.delfino < 1) return fail('Serve un Delfino libero nella capitale che governi la città: paga dalla capitale.');
       if (c.gang.share > K.acquireMaxShare) return fail(M('La banda ha ancora il {pct}% della città: indeboliscila sotto il {max}%.', { pct: Math.round(c.gang.share * 100), max: K.acquireMaxShare * 100 }));
       const need = influenceNeeded(s, a.city) + K.acquireInfluenza;
       if (from.influence < need) return fail(M('Serve almeno {need} di influenza a {city}.', { need, city: cityName(from.id) }));
@@ -1345,7 +1384,8 @@ export function act(s: GameState, a: Action): Result {
       if (!canAfford(s, cost, from)) return fail('Non hai abbastanza contante pulito o influenza.');
       pay(s, cost, from);
       materialize(s, c.id);
-      conquer(s, c, { id: 0, kind: 'assault', from: from.id, to: c.id, units: {}, arriveAt: 0, returnAt: 0, resolved: true, loot: 0, stay: true }, false);
+      from.units.delfino -= 1;
+      conquer(s, c, { id: 0, kind: 'assault', from: from.id, to: c.id, units: { delfino: 1 }, arriveAt: 0, returnAt: 0, resolved: true, loot: 0, stay: true }, false);
       s.stats.invested += totalCost(cost);
       log(s, 'good', M('Acquisizione: {city} passa a te con un paio di firme e qualche stretta di mano. Parte con {inf} di influenza e {heat} di calore ereditati da {from}.', { city: cityName(c.id), inf: Math.round(c.influence), heat: Math.round(c.heat), from: cityName(from.id) }), c.id);
       return { ok: true };

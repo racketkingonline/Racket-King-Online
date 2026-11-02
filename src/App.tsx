@@ -15,7 +15,7 @@ import {
 import {
   presidio as cityRatesPresidio, clock as engineClock, squadText as engineSquadText, vacationDaysLeft, investBonus, migrate, totalCost, acquireCost, act, campaignCost, isMayorOf, mayorCost, usableLots, whereIs, buildHours, buildingLevel, buildOptions, canAfford, capitalize, cityLimit, cityName, cityRates, def, demand,
   duration, efficiency, exposed, freeLots, gangBlocks, giriOn, giriPlaced, giriTotal, protectUsed, racketLevel, tileRisk, activeRoutes, gangDefense, influenceNeeded, nearestThreat, MAYOR, missingReqMsg, gangMsg, nameOf, newGame, owned,
-  payrollCost, peekCity, npcCooldown, POLICE, power, rates, researchCost, researchHours, safeCap, score, statesHeld, synergy, thresholds,
+  payrollCost, peekCity, capitalCooldown, delfini, needsDelfino, POLICE, power, rates, researchCost, researchHours, safeCap, score, statesHeld, synergy, thresholds,
   tick, travelHours, unitHours, upgradeCost, useDef,
   type Action, type BattleReport, type HostedId, type CityState, type GameState, type LogEntry, type MissionKind, type Squad, type UseKind,
 } from './engine/engine';
@@ -453,7 +453,7 @@ function Overview({ s, c, run }: P) {
         <div className="stats" style={{ marginTop: 10 }}>
           <Stat k={t('Città gestibili senza perdite')} v={t('{a} su {b}', { a: owned(s).length, b: cityLimit(s) })} tone={owned(s).length > cityLimit(s) ? 'neg' : ''} />
           <Stat k={t('Resa delle città')} v={`${Math.round(efficiency(s) * 100)}%`} tone={efficiency(s) < 1 ? 'neg' : efficiency(s) > 1 ? 'pos' : ''} />
-          <Stat k={t('Tregua con le bande')} v={npcCooldown(s) > 0 ? t('ancora {d}', { d: duration(npcCooldown(s)) }) : t('nessuna: puoi espanderti')} tone={npcCooldown(s) > 0 ? 'neg' : 'pos'} />
+          <Stat k={t('Delfini')} v={t('{a} pronti nella capitale, {b} reggenti', { a: delfini(s).free, b: delfini(s).regents }) + (delfini(s).training ? ' · ' + t('uno in arruolamento') : '')} tone={delfini(s).free > 0 ? 'pos' : ''} />
           <Stat k={t("Soglia dell'indagine federale")} v={owned(s).length > 1 ? t('{n} (scende con ogni città)', { n: T.indagine }) : String(T.indagine)} />
         </div>
       </section>
@@ -775,12 +775,13 @@ function Crew({ s, c, run }: P) {
       {c.unitQueue.length > 0 && <section className="panel"><h2 className="with-ico"><Ico id="stato-coda" size="md" />{t('Arruolamenti a {city}', { city: cityName(c.id) })}</h2><UnitQueue s={s} c={c} run={run} /></section>}
       <div className="grid cards">
         {UNITS.map(u => {
-          const miss = missing(s, c, u.req); const k = n[u.id] ?? 1;
+          const isD = u.id === 'delfino';
+          const miss = isD && c.id !== s.capital ? [t('si arruola solo nella capitale ({city})', { city: cityName(s.capital) })] : missing(s, c, u.req); const k = isD ? 1 : n[u.id] ?? 1;
           const cost: Cost = { sporco: u.cost.sporco ? u.cost.sporco * k : undefined, pulito: u.cost.pulito ? u.cost.pulito * k : undefined };
           return (
             <Card key={u.id} title={t(u.name)} desc={t(u.desc)} locked={miss} art={`crew-${u.id}`} icon={`crew-${u.id}`}>
               <div className="stats">
-                <Stat k={t('Disponibili qui')} v={fmt(c.units[u.id])} />
+                <Stat k={isD && c.id !== s.capital ? t('Reggente qui') : t('Disponibili qui')} v={isD && c.id !== s.capital ? (c.units.delfino ? t('sì') : t('no')) : fmt(c.units[u.id])} />
                 {(c.guards[u.id] ?? 0) > 0 && <Stat k={t('A guardia dei front')} v={fmt(c.guards[u.id] ?? 0)} />}
                 {u.att > 0 && <Stat k={t('Attacco')} v={u.att} />}
                 {u.def > 0 && <Stat k={t('Difesa')} v={u.def} />}
@@ -789,9 +790,11 @@ function Crew({ s, c, run }: P) {
               </div>
               {c.unitQueue.some(j => j.id === u.id) && <div className="card-queue">{c.unitQueue[0]?.id === u.id ? <Progress s={s} start={c.unitQueue[0].nextAt - c.unitQueue[0].per} end={c.unitQueue[0].nextAt} label={t('in addestramento: {k} di {n}', { k: c.unitQueue[0].done + 1, n: c.unitQueue[0].n })} /> : <Queued label={t('in coda: {n}', { n: c.unitQueue.filter(j => j.id === u.id).reduce((a, j) => a + j.n - j.done, 0) })} />}</div>}
               <div className="upg">
-                <div><input type="number" min={1} value={k} onChange={e => setN({ ...n, [u.id]: Math.max(1, Number(e.target.value) || 1) })} aria-label={t('Quanti {unit}', { unit: t(u.name) })} /> <CostLine cost={cost} s={s} /> <span className="muted">· {t('{d} ciascuno', { d: duration(unitHours(c, u.id) * 3600) })}</span></div>
-                <button disabled={!canAfford(s, cost)} onClick={() => run({ t: 'recruit', city: c.id, id: u.id, n: k })}>{t('Recluta')}</button>
+                <div>{!isD && <input type="number" min={1} value={k} onChange={e => setN({ ...n, [u.id]: Math.max(1, Number(e.target.value) || 1) })} aria-label={t('Quanti {unit}', { unit: t(u.name) })} />} <CostLine cost={cost} s={s} /> <span className="muted">· {isD ? duration(unitHours(c, u.id) * 3600) : t('{d} ciascuno', { d: duration(unitHours(c, u.id) * 3600) })}</span></div>
+                <button disabled={!canAfford(s, cost) || (isD && delfini(s).training)} onClick={() => run({ t: 'recruit', city: c.id, id: u.id, n: k })}>{t('Recluta')}</button>
               </div>
+              {isD && <p className="hint">{t('Serve per prendere una città: parte con l\'assalto (o con l\'acquisto) e resta a governarla, con il suo stipendio. Se l\'assalto fallisce, muore. Non serve per la capitale di un altro boss: lui diventa tuo vassallo.')}</p>}
+
             </Card>
           );
         })}
@@ -842,7 +845,9 @@ function MapTab({ s, c, run }: P) {
   const realLot = lotSel !== null ? tc.lots[lotSel] : null;
   const protectedNow = (realLot?.protectedUntil ?? 0) > s.time;
   const acq = acquireCost(tc);
-  const fighters = UNITS.filter(u => u.branch === 'criminale' && u.id !== 'informatori');
+  const fighters = UNITS.filter(u => u.branch === 'criminale' && u.id !== 'informatori' && (u.id !== 'delfino' || origin.id === s.capital));
+  const delfOk = !needsDelfino(tc) || (sq.delfino ?? 0) > 0;
+  const raidWait = Math.max(0, (tc.cooldowns?.razzia ?? 0) - s.time);
   const mine = owned(s);
   const ownedSet = new Set(mine.map(x => x.id));
   const net = useNet();
@@ -893,7 +898,7 @@ function MapTab({ s, c, run }: P) {
         <h2>{td.name}</h2>
         <p className="lead small">{td.county} County · {td.state} · {t(td.tier)} · {t('{n} abitanti', { n: td.population })}</p>
         <p className="lead small">{t(td.desc)}</p>
-        {isNpc && !rival && npcCooldown(s) > 0 && <p className="req"><Ico id="stato-coda" size="xs" />{t('Tregua dopo la tua ultima conquista: per {d} non puoi attaccare né comprare città delle bande. Le spie possono andare.', { d: duration(npcCooldown(s)) })}</p>}
+        {isNpc && raidWait > 0 && <p className="req"><Ico id="stato-coda" size="xs" />{t('Cassa appena ripulita: il prossimo colpo alla cassa qui tra {d}.', { d: duration(raidWait) })}</p>}
         {boss && net && <div className="actions boss-actions">
           <button onClick={() => net.openChat(boss.id)}><Ico id="politica-campagna" size="xs" />{t('Scrivi a {name}', { name: boss.name })}</button>
           {!boss.ally && <button onClick={() => { void net.act({ t: 'pactPropose', to: boss.id, days: 7 }).then(r => r.m && alertMsg(r.m)); }}><Ico id="knowhow-corruzione" size="xs" />{t('Proponi un patto di 7 giorni')}</button>}
@@ -942,7 +947,7 @@ function MapTab({ s, c, run }: P) {
             </> : <div className="muted">{t('Lotto vuoto.')}</div>}
             <div className="actions">
               {seen && !seenHidden && !seenIsQg && <button disabled={myAtt <= 0 || blocked || protectedNow} onClick={() => send('strike', sq, lotSel)}><Ico id="missione-colpo" size="xs" />{t("Colpisci l'edificio")}</button>}
-              {seen && (seenIsQg || seenHidden) && <button className="strong" disabled={myAtt <= 0 || blocked} onClick={() => send('assault', sq, lotSel)}><Ico id="missione-assalto" size="xs" />{seenIsQg ? t('Assalta il QG') : t('Assalto alla cieca qui')}</button>}
+              {seen && (seenIsQg || seenHidden) && <button className="strong" disabled={myAtt <= 0 || blocked || !delfOk} onClick={() => send('assault', sq, lotSel)}><Ico id="missione-assalto" size="xs" />{seenIsQg ? t('Assalta il QG') : t('Assalto alla cieca qui')}</button>}
             </div>
             <p className="hint">{seenIsQg ? t('Il QG ha {def} di difesa con le fortificazioni. Se vinci, la città è tua.', { def: intel!.defense }) : seenHidden ? t("Potrebbe essere il QG, la cassaforte o un racket. Se non è il QG, chiudi l'edificio ma la banda va in allerta.") : t("Un colpo affronta solo gli uomini (circa {def} nel rapporto). Se vinci, l'edificio resta chiuso {min}–{max} ore.", { def: power(null, intel!.units, 'def') + 20, min: K.closeMin, max: K.closeMax })}</p>
           </div>
@@ -950,17 +955,19 @@ function MapTab({ s, c, run }: P) {
         <div className="actions">
           {isNpc && <button disabled={!(sq.informatori ?? 0)} onClick={() => send('spy', { informatori: sq.informatori })} title={t('Solo gli informatori selezionati')}><Ico id="missione-spia" size="xs" />{t('Spia')}</button>}
           {isNpc && seenLots && !look && <button onClick={() => setLook(true)}><Ico id="mappa-spiata" size="xs" />{t('Guarda la città')}</button>}
-          {isNpc && <button disabled={myAtt <= 0 || blocked} onClick={() => send('raid', sq)} title={t('Rubi metà della cassa e riduci la presa della banda')}><Ico id="missione-razzia" size="xs" />{t('Colpo alla cassa')}</button>}
-          {isNpc && !look && <button className="strong" disabled={myAtt <= 0 || blocked} onClick={() => send('assault', sq, qgKnown ? whereIs(tc, 'qg')?.lot : undefined)} title={t('Se prendi il QG, la città è tua')}><Ico id="missione-assalto" size="xs" />{qgKnown ? t('Assalta il QG') : t('Assalto alla cieca')}</button>}
+          {isNpc && <button disabled={myAtt <= 0 || blocked || raidWait > 0 || (sq.delfino ?? 0) > 0} onClick={() => send('raid', sq)} title={t('Rubi metà della cassa e riduci la presa della banda')}><Ico id="missione-razzia" size="xs" />{t('Colpo alla cassa')}</button>}
+          {isNpc && !look && <button className="strong" disabled={myAtt <= 0 || blocked || !delfOk} onClick={() => send('assault', sq, qgKnown ? whereIs(tc, 'qg')?.lot : undefined)} title={t('Se prendi il QG, la città è tua')}><Ico id="missione-assalto" size="xs" />{qgKnown ? t('Assalta il QG') : t('Assalto alla cieca')}</button>}
           {!isNpc && !same && <button disabled={!Object.values(sq).some(v => (v ?? 0) > 0)} onClick={() => send('transfer', sq)}><Ico id="missione-trasferimento" size="xs" />{t('Trasferisci')}</button>}
         </div>
+        {isNpc && needsDelfino(tc) && !delfOk && <p className="req"><Ico id="crew-delfino" size="xs" />{origin.id === s.capital && origin.units.delfino > 0 ? t('Per assaltare aggiungi il Delfino alla squadra: sarà lui a governare la città.') : t('Per assaltare serve un Delfino che governi la città: arruolalo nella capitale ({city}) e parti da lì.', { city: cityName(s.capital) })}</p>}
+        {isNpc && tc.proxy !== undefined && tc.proxyCapital && <p className="hint">{t('È la capitale di {name}: se prendi il suo QG non ti serve il Delfino, lui diventa tuo vassallo.', { name: rival ?? '' })}</p>}
         <p className="hint">{t('Per conquistare devi prendere il loro quartier generale. Spia per sapere dov\'è (serve un rapporto completo), poi apri la città con "Guarda la città" e scegli il bersaglio. Colpo alla cassa: rubi metà dei loro soldi. Colpo a un edificio: lo chiudi per qualche ora e la loro presa scende.')}</p>
 
         {isNpc && (
           <div className="pol">
             <Ico id="res-citta" size="md" />
             <div><b>{t('Acquisizione')}</b><div className="muted small">{t('Compri la città senza sparare, quando la banda è sotto il {pct}% di presa. Nessun calore. Paga {city}.', { pct: K.acquireMaxShare * 100, city: cityName(origin.id) })}</div></div>
-            <div className="pol-act"><CostLine cost={acq} s={s} c={origin} /><button disabled={tc.gang.share > K.acquireMaxShare || !canAfford(s, acq, origin) || origin.influence < need + K.acquireInfluenza} onClick={() => run({ t: 'acquire', from: origin.id, city: tc.id })}>{t('Compra')}</button></div>
+            <div className="pol-act"><CostLine cost={acq} s={s} c={origin} /><button disabled={tc.gang.share > K.acquireMaxShare || !canAfford(s, acq, origin) || origin.influence < need + K.acquireInfluenza || origin.id !== s.capital || origin.units.delfino < 1} onClick={() => run({ t: 'acquire', from: origin.id, city: tc.id })}>{t('Compra')}</button></div>
           </div>
         )}
         {isNpc && <><div className="pol">
@@ -1015,6 +1022,11 @@ function CityTab({ s, c, run }: P) {
   );
 }
 
+function CapitalButton({ s, c, run }: P) {
+  const [ask, setAsk] = useState(false); const wait = capitalCooldown(s);
+  if (ask) return <p className="confirm-line">{t('Spostare la capitale a {city}? Il boss si trasferisce qui; se c\'è un Delfino si fa da parte. Si può fare una volta a settimana.', { city: cityName(c.id) })} <button className="strong" onClick={() => { setAsk(false); run({ t: 'setCapital', city: c.id }); }}>{t('Sì, sposta')}</button> <button onClick={() => setAsk(false)}>{t('No')}</button></p>;
+  return <div className="actions"><button disabled={wait > 0} onClick={() => setAsk(true)}><Ico id="struttura-qg" size="xs" />{wait > 0 ? t('Capitale spostabile tra {d}', { d: duration(wait) }) : t('Fanne la capitale')}</button></div>;
+}
 function CitySummary({ s, c, run }: P) {
   const cr = cityRates(s, c); const d = def(c.id);
   const zones = new Map<string, number>(); layout(c.id).lots.forEach((_, i) => { const z = lotZone(c.id, i); zones.set(z, (zones.get(z) ?? 0) + 1); });
@@ -1028,7 +1040,11 @@ function CitySummary({ s, c, run }: P) {
         <Stat k={t('Influenza')} v={`${Math.floor(c.influence)} / ${K.influenceCap} (+${dec(cr.influence, 2)}/h)`} />
         <Stat k={t('Calore')} v={`${Math.round(c.heat)} → ${Math.round(cr.heatTarget)}`} />
         <Stat k={t('Lotti')} v={t('{used} usati, {free} liberi', { used: c.lots.filter(Boolean).length, free: freeLots(c, s).length })} />
+        <Stat k={t('Governo')} v={c.id === s.capital ? t('il boss in persona (capitale)') : c.units.delfino ? t('un Delfino ({m}/h)', { m: money(3000) }) : t('nessun reggente')} />
       </div>
+      {c.id !== s.capital && (c.taken
+        ? <p className="hint">{t('Presa a un altro boss: non può diventare la tua capitale.')}</p>
+        : <CapitalButton s={s} c={c} run={run} />)}
       {c.move && <Progress s={s} icon={c.move.id === 'qg' ? 'struttura-qg' : 'struttura-cassaforte'} start={c.move.start ?? c.move.end - K.moveHours * 3600} end={c.move.end} label={c.move.id === 'qg' ? t('Trasloco del QG') : t('Trasloco della cassaforte')} onCancel={() => run({ t: 'cancelMove', city: c.id })} warn={t('Interrompere il trasloco? Resta dov\'era e i soldi del trasloco sono persi.')} />}
       {c.campaign && <Progress s={s} icon="politica-campagna" start={c.campaign.ends - K.campaignHours * 3600} end={c.campaign.ends} label={t('Campagna elettorale')} onCancel={() => run({ t: 'cancelCampaign', city: c.id })} warn={t('Ritirarti dalla campagna? I soldi spesi sono persi.')} />}
       <UnitQueue s={s} c={c} run={run} />

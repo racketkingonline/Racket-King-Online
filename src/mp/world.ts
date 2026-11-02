@@ -138,7 +138,7 @@ export class World {
     let c = s.cities[id];
     if (!c || c.owner === 'player') { c = peekCity(s, id); s.cities[id] = c; }
     for (const mine of owned(s)) if (mine.gang.incoming?.from === id) { mine.gang.incoming = null; mine.gang.nextAttackAt = s.time + 12 * H; }
-    c.proxy = oi; c.owner = 'npc';
+    c.proxy = oi; c.owner = 'npc'; c.proxyCapital = id === ow.s.capital;
     c.lots = JSON.parse(JSON.stringify(oc.lots));
     const units: Squad = {};
     for (const u of ['picchiatori', 'soldati', 'enforcer', 'guardie', 'informatori', 'corrieri'] as UnitId[]) if (oc.units[u]) units[u] = oc.units[u];
@@ -317,7 +317,8 @@ export class World {
         if (snap && snap.owner === was && v && !this.friend(sl, was) && v.s.capital === c.id) {
           // capitale presa: non si conquista, si sottomette. Il rivale tiene la città e diventa vassallo.
           const back = owned(s).find(x => x.id !== c.id && this.owner.get(x.id) === sl.id);
-          if (back) for (const [u, n] of Object.entries(c.units)) if (n) back.units[u as UnitId] += n;
+          const capCity = s.cities[s.capital] && s.capital !== c.id ? s.cities[s.capital] : back;
+          if (back) for (const [u, n] of Object.entries(c.units)) if (n) (u === 'delfino' && capCity ? capCity : back).units[u as UnitId] += n;
           this.purgeCity(s, c.id); delete sl.proxies[c.id];
           v.shieldUntil = t + RULES.shieldHours * H; v.vassalSince = t;
           if (v.lord !== sl.id) this.becomeVassal(v, sl);
@@ -327,7 +328,7 @@ export class World {
           sl.history.push({ t, what: 'sottomette', other: was }); v.history.push({ t, what: 'sottomesso', other: sl.id });
           this.onChange(v.id); this.onChange(sl.id);
         } else if (snap && snap.owner === was && v && !this.friend(sl, was)) {
-          delete c.proxy; delete sl.proxies[c.id];
+          delete c.proxy; delete c.proxyCapital; delete sl.proxies[c.id]; c.taken = true;
           this.setOwner(c.id, sl.id); sl.history.push({ t, what: 'conquistaPvp', city: c.id, other: was });
           this.loseCity(v, c.id, sl); this.onChange(sl.id);
         } else {

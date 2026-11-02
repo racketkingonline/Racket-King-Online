@@ -74,10 +74,10 @@ export const RESEARCH: ResearchDef[] = [
 ];
 
 // ---------- Crew ----------
-export type UnitId = 'picchiatori' | 'soldati' | 'enforcer' | 'informatori' | 'corrieri' | 'avvocati' | 'contabili' | 'guardie';
+export type UnitId = 'picchiatori' | 'soldati' | 'enforcer' | 'informatori' | 'corrieri' | 'avvocati' | 'contabili' | 'guardie' | 'delfino';
 export type UnitDef = {
   id: UnitId; name: string; desc: string; branch: 'criminale' | 'legale';
-  cost: Cost; upkeep: Cost; att: number; def: number; carry: number; req?: Requirement;
+  cost: Cost; upkeep: Cost; att: number; def: number; carry: number; hours?: number; req?: Requirement;
 };
 export const UNITS: UnitDef[] = [
   { id: 'picchiatori', name: 'Picchiatori', desc: 'Economici. Fanno numero.', branch: 'criminale', cost: { sporco: 500 }, upkeep: { sporco: 8 }, att: 2, def: 3, carry: 300 },
@@ -88,6 +88,7 @@ export const UNITS: UnitDef[] = [
   { id: 'avvocati', name: 'Avvocati', desc: 'Riducono sequestri, arresti e calore.', branch: 'legale', cost: { pulito: 3000 }, upkeep: { pulito: 40 }, att: 0, def: 0, carry: 0, req: { building: { qg: 2 } } },
   { id: 'contabili', name: 'Contabili', desc: 'Lavano di più e trattengono meno.', branch: 'legale', cost: { pulito: 2000 }, upkeep: { pulito: 30 }, att: 0, def: 0, carry: 0 },
   { id: 'guardie', name: 'Guardie giurate', desc: 'Proteggono i front senza calore, ma sono deboli.', branch: 'legale', cost: { pulito: 1500 }, upkeep: { pulito: 15 }, att: 0, def: 4, carry: 0 },
+  { id: 'delfino', name: 'Delfino', desc: "L'erede che governa le città che prendi. Si arruola solo nella capitale, uno alla volta.", branch: 'criminale', cost: { sporco: 300000 }, upkeep: { sporco: 3000 }, att: 0, def: 0, carry: 0, hours: 36 },
 ];
 
 export type FlagId = 'licenzaCasino' | 'zonizzazione';
@@ -139,11 +140,13 @@ export const K = {
   attackMin: 0.6, attackMax: 1.25, attackFloorBase: 20, attackFloorPerDay: 8, repelPauseHours: 12, warningBaseMin: 60, warningPerInformer: 30, warningMaxMin: 360,
   attackHeatSpike: 6, defendHeatSpike: 3,
   rivalBase: 40, rivalGrowth: 25, rivalExp: 0.95, rivalCap: 6000,
-  // Bande del server: forza quasi standard (stessa per tutte le città, ±npcSpread), che non cresce col tempo.
-  // Tarata perché chi gioca per espandersi possa prendere la prima città dopo circa una settimana.
-  npcMen: 2600, npcFort: 120, npcSpread: 0.08,
-  // Dopo ogni conquista, per una settimana niente attacchi né acquisti di città delle bande.
-  conquestCooldownDays: 7,
+  // Bande del server: poche decine di uomini (si razziano presto); per prendere la città serve un Delfino.
+  npcSquad: { picchiatori: [20, 30], soldati: [5, 10], enforcer: [3, 6] } as Partial<Record<UnitId, [number, number]>>,
+  npcFort: 30,
+  // Dopo un colpo alla cassa, la stessa città non si ripulisce per un giorno.
+  raidCooldownHours: 24,
+  // La capitale si sposta al massimo una volta a settimana.
+  capitalMoveDays: 7,
   // Mappa e conquista
   travelBase: 0.25, travelSpeed: 100, // ore fisse + unità di mappa all'ora (mappa larga 975 ≈ 4.500 km)
   fortBase: 20, fortPerPop: 40, // difesa del quartier generale di una banda

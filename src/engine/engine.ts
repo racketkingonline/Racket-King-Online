@@ -9,7 +9,7 @@ import {
   type Requirement, type ResearchId, type UnitId,
 } from './data';
 import { blockFit, blockRoads, layout, lotsAdjacent, lotZone, nearPolice } from './layout';
-import { CITY_COUNT, cityDef, cityRaw, gangName } from './world';
+import { CITY_COUNT, cityDef, cityRaw, gangName, hash01 } from './world';
 
 // ---------------------------------------------------------------- tipi
 export type LogKind = 'info' | 'good' | 'warn' | 'bad';
@@ -92,6 +92,9 @@ export type GameState = {
   policeShift?: number;
   /** Contante pulito investito in attività di facciata (immobili, appalti): aumenta tutte le rendite, con rendimenti decrescenti. */
   investments?: number;
+  /** Ultima conquista (per la settimana di tregua con le bande) e momento d'ingresso nel mondo. */
+  lastConquest?: number;
+  born?: number;
   /** Ritratto scelto dal giocatore (id dell'illustrazione) e introduzione già vista. */
   avatar?: string;
   introSeen?: boolean;
@@ -235,9 +238,9 @@ export function migrate(s: GameState): GameState {
 /** Stato di una città: quelle mai toccate non sono salvate e vengono generate al volo. */
 export function peekCity(s: GameState, id: string): CityState {
   const have = s.cities[id]; if (have) return have;
-  const d = def(id); const days = s.time / (24 * H); const mult = 0.6 + 0.4 * d.pop;
+  const d = def(id); const days = s.time / (24 * H); const mult = 1;
   const c = emptyCity(id, 'npc', {
-    name: gangName(id), units: seedGang(rivalTarget(days) * mult), stash: Math.round(Math.min(500000 * d.pop, (8000 + 12000 * days) * d.pop)),
+    name: gangName(id), units: seedGang(npcTarget(id)), stash: Math.round(Math.min(500000 * d.pop, (8000 + 12000 * days) * d.pop)),
     share: 1, mult, nextAttackAt: 1e15, lastGrowAt: Math.floor(s.time / (6 * H)) * 6 * H, incoming: null, intel: null,
   });
   gangAssets(c, days);
@@ -828,7 +831,9 @@ export function distance(a: string, b: string) { const A = def(a), B = def(b); r
 export const travelHours = (s: GameState, from: string, to: string) =>
   Math.max(0.1, (K.travelBase + distance(from, to) / K.travelSpeed) * (1 - 0.1 * s.research.logistica));
 export const gangDefense = (c: CityState) => power(null, c.gang.units, 'def') + 20;
-export const fortDefense = (c: CityState) => power(null, c.gang.units, 'def') + K.fortBase + K.fortPerPop * def(c.id).pop + 10 * (whereIs(c, 'qg')?.level ?? 0);
+export const fortDefense = (c: CityState) => power(null, c.gang.units, 'def') + (c.proxy === undefined && c.owner === 'npc'
+  ? K.npcFort * npcSpread(c.id)
+  : K.fortBase + K.fortPerPop * def(c.id).pop + 10 * (whereIs(c, 'qg')?.level ?? 0));
 
 // ---------------------------------------------------------------- rapporti di battaglia
 export type ReportIn = Omit<BattleReport, 'id' | 't' | 'seen' | 'title' | 'lines' | 'advice' | 'm'> & { title: string | Msg; lines: (string | Msg)[]; advice: string | Msg };
@@ -999,6 +1004,7 @@ function conquer(s: GameState, t: CityState, m: Mission, violent: boolean) {
   t.turf = {}; autoPlace(t);
   if (violent) { if (from?.owner === 'player') from.heatSpike += K.conquestHeat; t.heatSpike += K.conquestHeat; }
   s.stats.conquests++;
+  s.lastConquest = s.time;
 }
 
 /** Una squadra a parole: "3 picchiatori, 2 soldati" (o "nessuno"). */
@@ -1010,6 +1016,11 @@ export const squadText = (sq: Squad, lang: Lang = 'it') => render(squadMsg(sq), 
 
 // ---------------------------------------------------------------- bande NPC
 export function rivalTarget(days: number) { return Math.min(K.rivalCap, K.rivalBase + K.rivalGrowth * days ** K.rivalExp) * SEASON.npc; }
+/** La forza (difesa degli uomini) di una banda del server: uguale per tutte le città, con una piccola variazione fissa per città. */
+export const npcSpread = (id: string) => 1 + K.npcSpread * (2 * hash01('npc:' + id) - 1);
+export function npcTarget(id: string) { return K.npcMen * npcSpread(id) * SEASON.npc; }
+/** Secondi di tregua che restano prima di poter attaccare o comprare una città di una banda (0 = si può). */
+export function npcCooldown(s: GameState) { return s.lastConquest === undefined ? 0 : Math.max(0, s.lastConquest + K.conquestCooldownDays * 86400 - s.time); }
 const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 export { cap as capitalize };
 
@@ -1038,7 +1049,7 @@ function gangStep(s: GameState, c: CityState, r: Rates) {
   while (c.owner === 'npc' && c.proxy === undefined && s.time - g.lastGrowAt >= 6 * H) {
     g.lastGrowAt += 6 * H;
     const days = g.lastGrowAt / (24 * H);
-    const deficit = rivalTarget(days) * g.mult - power(null, g.units, 'def');
+    const deficit = npcTarget(c.id) - power(null, g.units, 'def');
     if (deficit > 0) {
       const add = deficit * 0.25;
       g.units.picchiatori = (g.units.picchiatori ?? 0) + Math.round((add * 0.5) / 3);
@@ -1061,7 +1072,7 @@ function gangStep(s: GameState, c: CityState, r: Rates) {
     // La banda manda quanto basta per mettere alla prova la tua difesa, non tutto quello che ha:
     // tra il 60% e il 125% della difesa attuale, con un minimo che cresce coi giorni.
     const defNow = kind === 'razzia' ? power(s, c.units, 'def') + 10 * buildingLevel(c, 'qg') : power(s, { ...c.guards, guardie: c.units.guardie }, 'def') + 5;
-    const want = Math.max(K.attackFloorBase + K.attackFloorPerDay * s.time / (24 * H), defNow * between(s, K.attackMin, K.attackMax));
+    const want = Math.max(K.attackFloorBase + K.attackFloorPerDay * (s.time - (s.born ?? 0)) / (24 * H), defNow * between(s, K.attackMin, K.attackMax));
     const full = power(null, units, 'att');
     if (full > want) { const f = want / full; for (const id of Object.keys(units) as UnitId[]) units[id] = Math.floor((units[id] ?? 0) * f); units.picchiatori = Math.max(1, units.picchiatori ?? 0); }
     for (const [id, k] of Object.entries(units)) A.units[id as UnitId] = (A.units[id as UnitId] ?? 0) - (k ?? 0);
@@ -1264,6 +1275,7 @@ export function act(s: GameState, a: Action): Result {
       if (a.kind === 'spy' && Object.keys(sq).some(k => k !== 'informatori')) return fail('A spiare vanno solo gli informatori.');
       if (hostile && power(null, sq, 'att') <= 0) return fail('Serve almeno qualcuno che sappia menare le mani.');
       if ((hostile || a.kind === 'spy') && to.owner === 'player') return fail('Questa città è tua: non ci sono bande.');
+      if (hostile && to.owner === 'npc' && to.proxy === undefined && npcCooldown(s) > 0) return fail(M('Hai appena conquistato una città: per {d} le bande ti lasciano in pace, e tu lasci in pace loro.', { d: duration(npcCooldown(s)) }));
       if (a.kind === 'strike') {
         const seen = to.gang.intel?.lots;
         if (!seen) return fail('Prima spia la città: si colpisce solo quello che hai visto.');
@@ -1287,6 +1299,7 @@ export function act(s: GameState, a: Action): Result {
       if (!validCity(a.city)) return fail('Città sconosciuta.');
       const c = peekCity(s, a.city);
       if (c.owner !== 'npc' || c.proxy !== undefined) return fail('Si possono comprare solo le città delle bande.');
+      if (npcCooldown(s) > 0) return fail(M('Hai appena conquistato una città: per {d} le bande ti lasciano in pace, e tu lasci in pace loro.', { d: duration(npcCooldown(s)) }));
       if (c.gang.share > K.acquireMaxShare) return fail(M('La banda ha ancora il {pct}% della città: indeboliscila sotto il {max}%.', { pct: Math.round(c.gang.share * 100), max: K.acquireMaxShare * 100 }));
       const need = influenceNeeded(s, a.city) + K.acquireInfluenza;
       if (from.influence < need) return fail(M('Serve almeno {need} di influenza a {city}.', { need, city: cityName(from.id) }));

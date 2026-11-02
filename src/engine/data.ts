@@ -139,6 +139,11 @@ export const K = {
   attackMin: 0.6, attackMax: 1.25, attackFloorBase: 20, attackFloorPerDay: 8, repelPauseHours: 12, warningBaseMin: 60, warningPerInformer: 30, warningMaxMin: 360,
   attackHeatSpike: 6, defendHeatSpike: 3,
   rivalBase: 40, rivalGrowth: 25, rivalExp: 0.95, rivalCap: 6000,
+  // Bande del server: forza quasi standard (stessa per tutte le città, ±npcSpread), che non cresce col tempo.
+  // Tarata perché chi gioca per espandersi possa prendere la prima città dopo circa una settimana.
+  npcMen: 2600, npcFort: 120, npcSpread: 0.08,
+  // Dopo ogni conquista, per una settimana niente attacchi né acquisti di città delle bande.
+  conquestCooldownDays: 7,
   // Mappa e conquista
   travelBase: 0.25, travelSpeed: 100, // ore fisse + unità di mappa all'ora (mappa larga 975 ≈ 4.500 km)
   fortBase: 20, fortPerPop: 40, // difesa del quartier generale di una banda

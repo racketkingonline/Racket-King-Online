@@ -5,7 +5,10 @@ import {
   act, buildOptions, canAfford, cityLimit, def, efficiency, fortDefense, freeLots, missingReq, newGame, owned, peekCity, power,
   rates, researchCost, tick, upgradeCost, type CityState, type GameState,
 } from '../src/engine/engine';
-import { RESEARCH } from '../src/engine/data';
+import { K, RESEARCH } from '../src/engine/data';
+if (process.env.NPC_MEN) K.npcMen = Number(process.env.NPC_MEN);
+if (process.env.NPC_FORT) K.npcFort = Number(process.env.NPC_FORT);
+let firstConquest = 0;
 
 const strategy = process.argv[2] ?? 'bilanciata';
 const s = newGame(Number(process.argv[3] ?? 7));
@@ -60,9 +63,11 @@ function bot(s: GameState) {
 let last = 0;
 for (let t = 0; t < 21 * 24 * H; t += 600) {
   bot(s); tick(s, 600);
+  if (!firstConquest && owned(s).length > 1) firstConquest = s.time / 86400;
   if (s.time - last >= 24 * H) {
     last = s.time; const r = rates(s); const d = Math.round(s.time / 86400);
     if ([3, 5, 7, 10, 14, 21].includes(d)) console.log(`G${d} città ${owned(s).length}/${cityLimit(s)} eff ${efficiency(s).toFixed(2)} | sporco ${Math.round(s.res.sporco)} pulito ${Math.round(s.res.pulito)} | sporco/h ${Math.round(r.dirty)} pulito/h ${Math.round(r.clean + r.laundering * (1 - r.launderFee))} | lotti ${owned(s).map(c => `${c.lots.filter(Boolean).length}/${c.lots.length}`).join(' ')} | calore ${owned(s).map(c => Math.round(c.heat)).join('/')} | infl ${owned(s).map(c => Math.round(c.influence)).join('/')}`);
   }
 }
 console.log(JSON.stringify(s.stats));
+console.log('PRIMA_CONQUISTA', firstConquest ? firstConquest.toFixed(1) : 'mai', 'CITTA', owned(s).length);

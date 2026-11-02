@@ -179,4 +179,8 @@ export const EN_ONLINE: Record<string, string> = {
   "Nessun costo.": "No costs.",
   "Gestisci più città del tuo limite: tutte le rendite sono al {pct}%.": "You run more cities than your limit: all income is at {pct}%.",
   "Se il contante sporco finisce, gli uomini senza paga se ne vanno; il lavaggio lascia sempre in cassa {h} ore di stipendi.": "If dirty cash runs out, unpaid people walk; laundering always leaves {h} hours of wages in the till.",
+  // tregua dopo una conquista
+  "Tregua dopo la tua ultima conquista: per {d} non puoi attaccare né comprare città delle bande. Le spie possono andare.": "Truce after your last conquest: for {d} you can't attack or buy gang cities. Spies can still go.",
+  "Tregua con le bande": "Truce with the gangs",
+  "nessuna: puoi espanderti": "none: you can expand",
 };

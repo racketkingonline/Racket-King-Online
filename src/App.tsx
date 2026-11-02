@@ -15,7 +15,7 @@ import {
 import {
   presidio as cityRatesPresidio, clock as engineClock, squadText as engineSquadText, vacationDaysLeft, investBonus, migrate, totalCost, acquireCost, act, campaignCost, isMayorOf, mayorCost, usableLots, whereIs, buildHours, buildingLevel, buildOptions, canAfford, capitalize, cityLimit, cityName, cityRates, def, demand,
   duration, efficiency, exposed, freeLots, gangBlocks, giriOn, giriPlaced, giriTotal, protectUsed, racketLevel, tileRisk, activeRoutes, gangDefense, influenceNeeded, nearestThreat, MAYOR, missingReqMsg, gangMsg, nameOf, newGame, owned,
-  payrollCost, peekCity, POLICE, power, rates, researchCost, researchHours, safeCap, score, statesHeld, synergy, thresholds,
+  payrollCost, peekCity, npcCooldown, POLICE, power, rates, researchCost, researchHours, safeCap, score, statesHeld, synergy, thresholds,
   tick, travelHours, unitHours, upgradeCost, useDef,
   type Action, type BattleReport, type HostedId, type CityState, type GameState, type LogEntry, type MissionKind, type Squad, type UseKind,
 } from './engine/engine';
@@ -422,6 +422,7 @@ function Overview({ s, c, run }: P) {
         <div className="stats" style={{ marginTop: 10 }}>
           <Stat k={t('Città gestibili senza perdite')} v={t('{a} su {b}', { a: owned(s).length, b: cityLimit(s) })} tone={owned(s).length > cityLimit(s) ? 'neg' : ''} />
           <Stat k={t('Resa delle città')} v={`${Math.round(efficiency(s) * 100)}%`} tone={efficiency(s) < 1 ? 'neg' : efficiency(s) > 1 ? 'pos' : ''} />
+          <Stat k={t('Tregua con le bande')} v={npcCooldown(s) > 0 ? t('ancora {d}', { d: duration(npcCooldown(s)) }) : t('nessuna: puoi espanderti')} tone={npcCooldown(s) > 0 ? 'neg' : 'pos'} />
           <Stat k={t("Soglia dell'indagine federale")} v={owned(s).length > 1 ? t('{n} (scende con ogni città)', { n: T.indagine }) : String(T.indagine)} />
         </div>
       </section>
@@ -770,6 +771,7 @@ function MapTab({ s, c, run }: P) {
         <h2>{td.name}</h2>
         <p className="lead small">{td.county} County · {td.state} · {t(td.tier)} · {t('{n} abitanti', { n: td.population })}</p>
         <p className="lead small">{t(td.desc)}</p>
+        {isNpc && !rival && npcCooldown(s) > 0 && <p className="req"><Ico id="stato-coda" size="xs" />{t('Tregua dopo la tua ultima conquista: per {d} non puoi attaccare né comprare città delle bande. Le spie possono andare.', { d: duration(npcCooldown(s)) })}</p>}
         {rival && tc.proxy === undefined && <p className="req">{t('Per ora non puoi colpire {name}: è nuovo, in vacanza, ha appena perso una città, è della tua famiglia o è troppo debole per te.', { name: rival })}</p>}
         <div className="stats">
           <Stat k={t('Controllo')} v={rival ? t('Il boss {name}', { name: rival }) : isNpc ? capitalize(gangL(tc.gang.name)) : tc.id === s.capital ? t('Tua (capitale)') : t('Tua')} />

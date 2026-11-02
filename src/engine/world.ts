@@ -25,6 +25,7 @@ export function tierOf(pop: number): Tier {
 export const TIER_FACTOR: Record<Tier, number> = { 'Paese': 0.6, 'Cittadina': 1, 'Città': 2, 'Grande città': 3.5, 'Metropoli': 6 };
 
 // hash deterministico (FNV-1a) → [0,1)
+export function hash01(str: string) { return h(str); }
 function h(str: string) { let x = 2166136261; for (let i = 0; i < str.length; i++) { x ^= str.charCodeAt(i); x = Math.imul(x, 16777619); } return (x >>> 0) / 4294967296; }
 
 const CASINO_STATES = new Set(['NV', 'NJ', 'MS', 'LA']);

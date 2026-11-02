@@ -276,4 +276,5 @@ export const EN_ENGINE: Record<string, string> = {
   'I cartelli del Sud si fanno la guerra: per 21 giorni le bande locali sono decimate e il riscatto dei vassalli costa la metà.': 'The Southern cartels go to war: for 21 days local gangs are decimated and buying back vassals costs half.',
   'Giro di vite federale': 'Federal crackdown',
   "L'FBI punta i pesci grossi: per 21 giorni le soglie di polizia dei primi 10% in classifica scendono di 15 punti.": 'The FBI goes after the big fish: for 21 days the police thresholds of the top 10% on the leaderboard drop by 15 points.',
+  'Hai appena conquistato una città: per {d} le bande ti lasciano in pace, e tu lasci in pace loro.': 'You just took a city: for {d} the gangs leave you alone, and you leave them alone.',
 };

@@ -105,7 +105,7 @@ export class World {
     let start = at && !this.owner.has(at) ? at : free[Math.floor(rnd() * Math.min(free.length, Math.max(20, Math.floor(free.length * 0.8))))];
     if (!start) start = this.byDistance!.find(c => !this.owner.has(c) && cityRaw(Number(c))[5] >= 2000)!;
     const s = newGame((Date.now() + id * 104729) % 2147483647 | 0, start);
-    s.time = t; const h = s.cities[start]; h.gang.nextAttackAt += t; h.since = t; for (const l of s.log) l.t = t;
+    s.time = t; s.born = t; const h = s.cities[start]; h.gang.nextAttackAt += t; h.since = t; for (const l of s.log) l.t = t;
     s.avatar = avatar;
     const sl: Slot = { id, name, s, lord: null, vassals: [], allies: [], shieldUntil: 0, vassalSince: 0, lastOnline: t, joinedAt: t, proxies: {}, seen: [], incoming: [], history: [{ t, what: 'entra', city: start }] };
     this.slots.set(id, sl); this.setOwner(start, id);

@@ -142,9 +142,9 @@ describe('motore', () => {
 
   it('un colpo in un\'altra città porta bottino e indebolisce la banda', () => {
     const s = newGame(10); const t = npc(s);
-    home(s).units.soldati = 40; home(s).units.corrieri = 5;
+    home(s).units.soldati = 500; home(s).units.corrieri = 5;
     const share = t.gang.share;
-    expect(act(s, { t: 'mission', kind: 'raid', from: s.capital, to: t.id, units: { soldati: 40, corrieri: 5 } }).ok).toBe(true);
+    expect(act(s, { t: 'mission', kind: 'raid', from: s.capital, to: t.id, units: { soldati: 500, corrieri: 5 } }).ok).toBe(true);
     tick(s, 8 * H);
     expect(s.stats.looted).toBeGreaterThan(0);
     expect(t.gang.share).toBeLessThan(share);
@@ -152,14 +152,40 @@ describe('motore', () => {
 
   it('la conquista eredita il 20% di influenza e calore nello stesso stato', () => {
     const s = newGame(11); const t = npc(s);
-    home(s).units.enforcer = 80; home(s).influence = 300; home(s).heat = 100; home(s).gang.nextAttackAt = 1e12;
-    act(s, { t: 'mission', kind: 'assault', from: s.capital, to: t.id, units: { enforcer: 80 }, lot: whereIs(t, 'qg')!.lot });
+    home(s).units.enforcer = 250; home(s).influence = 300; home(s).heat = 100; home(s).gang.nextAttackAt = 1e12;
+    act(s, { t: 'mission', kind: 'assault', from: s.capital, to: t.id, units: { enforcer: 250 }, lot: whereIs(t, 'qg')!.lot });
     const arrive = s.missions[0].arriveAt;
     tick(s, arrive - s.time + 1);
     expect(t.owner).toBe('player');
     expect(t.influence).toBeCloseTo(home(s).influence > 0 ? 60 : 60, -1);
     expect(buildingLevel(t, 'qg')).toBe(1);
     expect(fortDefense(t)).toBeGreaterThan(0);
+  });
+
+  it('le bande del server hanno quasi la stessa forza ovunque e in ogni momento', () => {
+    const s = newGame(51);
+    const ids = [...CITIES_BY_STATE[def(s.capital).stateIdx].slice(0, 40).map(String)];
+    const early = ids.map(id => fortDefense(peekCity(s, id)));
+    s.time = 60 * 86400;
+    const late = ids.filter(id => !s.cities[id]).map(id => fortDefense(peekCity(s, id)));
+    const all = [...early, ...late]; const lo = Math.min(...all), hi = Math.max(...all);
+    expect(hi / lo).toBeLessThan(1.2);
+    expect(lo).toBeGreaterThan(K.npcMen * 0.85);
+  });
+
+  it('dopo una conquista, una settimana senza attaccare né comprare città delle bande', () => {
+    const s = newGame(11); const t = npc(s);
+    home(s).units.enforcer = 250; home(s).influence = 300; home(s).gang.nextAttackAt = 1e12; s.res.sporco = 1e7;
+    act(s, { t: 'mission', kind: 'assault', from: s.capital, to: t.id, units: { enforcer: 250 }, lot: whereIs(t, 'qg')!.lot });
+    tick(s, s.missions[0].arriveAt - s.time + 1);
+    expect(t.owner).toBe('player');
+    const other = CITIES_BY_STATE[def(s.capital).stateIdx].map(String).find(id => id !== s.capital && id !== t.id)!;
+    home(s).units.soldati = 50;
+    const no = act(s, { t: 'mission', kind: 'raid', from: s.capital, to: other, units: { soldati: 10 } });
+    expect(no.ok).toBe(false); expect(no.m?.k).toMatch(/appena conquistato/);
+    expect(act(s, { t: 'mission', kind: 'spy', from: s.capital, to: other, units: { informatori: 0 } }).m?.k ?? '').not.toMatch(/appena conquistato/);
+    s.time += 7 * 86400 + 60;
+    expect(act(s, { t: 'mission', kind: 'raid', from: s.capital, to: other, units: { soldati: 10 } }).m?.k ?? '').not.toMatch(/appena conquistato/);
   });
 
   it('per uscire dallo stato serve influenza nella città di partenza', () => {
@@ -224,8 +250,8 @@ describe('motore', () => {
 
   it('dopo la conquista la città è tutta tua', () => {
     const s = newGame(24); const t = npc(s);
-    home(s).units.enforcer = 80; home(s).gang.nextAttackAt = 1e12;
-    act(s, { t: 'mission', kind: 'assault', from: s.capital, to: t.id, units: { enforcer: 80 }, lot: whereIs(t, 'qg')!.lot });
+    home(s).units.enforcer = 250; home(s).gang.nextAttackAt = 1e12;
+    act(s, { t: 'mission', kind: 'assault', from: s.capital, to: t.id, units: { enforcer: 250 }, lot: whereIs(t, 'qg')!.lot });
     tick(s, s.missions[0].arriveAt - s.time + 1);
     expect(t.owner).toBe('player');
     expect(t.gang.share).toBe(0);
@@ -278,21 +304,22 @@ describe('motore', () => {
 
   it('spia, poi colpisci un edificio visto: resta chiuso qualche ora', () => {
     const s = newGame(32); const t = npc(s); const c = home(s);
-    c.units.soldati = 60; c.units.informatori = 6; c.gang.nextAttackAt = 1e12;
+    c.units.soldati = 600; c.units.informatori = 6; c.gang.nextAttackAt = 1e12; s.res.sporco = 1e7;
     const target = t.lots.findIndex(l => l?.kind === 'front' || l?.kind === 'racket');
     expect(act(s, { t: 'mission', kind: 'strike', from: c.id, to: t.id, units: { soldati: 10 }, lot: target }).ok).toBe(false); // niente rapporto
     act(s, { t: 'mission', kind: 'spy', from: c.id, to: t.id, units: { informatori: 6 } });
     tick(s, 3 * H);
     if (!t.gang.intel) return; // informatori scoperti: capita
     expect(t.gang.intel.lots?.length).toBe(t.lots.length);
-    expect(act(s, { t: 'mission', kind: 'strike', from: c.id, to: t.id, units: { soldati: 60 }, lot: target }).ok).toBe(true);
+    const res = act(s, { t: 'mission', kind: 'strike', from: c.id, to: t.id, units: { soldati: 600 }, lot: target });
+    expect(res.ok).toBe(true);
     tick(s, s.missions[0].arriveAt - s.time + 1);
     expect(t.lots[target]!.closedUntil).toBeGreaterThan(s.time);
   });
 
   it('assalto sull\'edificio sbagliato: niente conquista, banda in allerta', () => {
     const s = newGame(33); const t = npc(s); const c = home(s);
-    c.units.enforcer = 80; c.gang.nextAttackAt = 1e12;
+    c.units.enforcer = 250; c.gang.nextAttackAt = 1e12;
     const wrong = t.lots.findIndex((l, i) => l && i !== whereIs(t, 'qg')!.lot);
     act(s, { t: 'mission', kind: 'assault', from: c.id, to: t.id, units: { enforcer: 80 }, lot: wrong });
     tick(s, s.missions[0].arriveAt - s.time + 1);
@@ -302,9 +329,9 @@ describe('motore', () => {
 
   it('conquistando il QG le attività della banda passano a te', () => {
     const s = newGame(34); const t = npc(s); const c = home(s);
-    c.units.enforcer = 100; c.gang.nextAttackAt = 1e12;
+    c.units.enforcer = 300; c.gang.nextAttackAt = 1e12;
     const theirs = t.lots.filter(Boolean).length;
-    act(s, { t: 'mission', kind: 'assault', from: c.id, to: t.id, units: { enforcer: 100 }, lot: whereIs(t, 'qg')!.lot });
+    act(s, { t: 'mission', kind: 'assault', from: c.id, to: t.id, units: { enforcer: 300 }, lot: whereIs(t, 'qg')!.lot });
     tick(s, s.missions[0].arriveAt - s.time + 1);
     expect(t.owner).toBe('player');
     expect(t.lots.filter(Boolean).length).toBe(theirs);

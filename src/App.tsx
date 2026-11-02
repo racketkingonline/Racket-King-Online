@@ -1042,7 +1042,7 @@ function CitySummary({ s, c, run }: P) {
         <Stat k={t('Influenza')} v={`${Math.floor(c.influence)} / ${K.influenceCap} (+${dec(cr.influence, 2)}/h)`} />
         <Stat k={t('Calore')} v={`${Math.round(c.heat)} → ${Math.round(cr.heatTarget)}`} />
         <Stat k={t('Lotti')} v={t('{used} usati, {free} liberi', { used: c.lots.filter(Boolean).length, free: freeLots(c, s).length })} />
-        <Stat k={t('Governo')} v={c.id === s.capital ? t('il boss in persona (capitale)') : c.units.delfino ? t('un Delfino ({m}/h)', { m: money(3000) }) : t('nessun reggente')} />
+        <Stat k={t('Governo')} v={c.id === s.capital ? t('il boss in persona (capitale)') : c.units.delfino ? t('un Delfino ({m}/h)', { m: money(UNITS.find(u => u.id === 'delfino')!.upkeep.sporco!) }) : t('nessun reggente')} />
       </div>
       {c.id !== s.capital && (c.taken
         ? <p className="hint">{t('Presa a un altro boss: non può diventare la tua capitale.')}</p>

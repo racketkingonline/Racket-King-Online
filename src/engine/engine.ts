@@ -950,7 +950,7 @@ function resolveMission(s: GameState, m: Mission) {
     report(s, { ...base, title: M('{city} è tua', { city: tn }), win: true, loot: 0,
       lines: [...lines, N('Hai preso il loro quartier generale: la banda lascia la città e le sue attività passano a te (a metà livello).'),
         M('Parti con {inf} di influenza e {heat} di calore ereditati da {from}. I tuoi uomini restano in città.', { inf: Math.round(t.influence), heat: Math.round(t.heat), from: cityName(m.from) }),
-        M('Il tuo Delfino ora regge {city}: costa {m}/h finché la tieni.', { city: tn, m: { money: 3000 } })],
+        M('Il tuo Delfino ora regge {city}: costa {m}/h finché la tieni.', { city: tn, m: { money: UNITS.find(u => u.id === 'delfino')!.upkeep.sporco! } })],
       advice: owned(s).length > cityLimit(s) ? M('Gestisci {n} città ma il tuo limite è {max}: tutte rendono meno. Studia Gestione.', { n: owned(s).length, max: cityLimit(s) }) : N('Metti un po\' di difesa in città: le bande vicine se ne accorgeranno.') });
     log(s, 'good', M('{city} è tua: preso il quartier generale di {gang}. Perdite: tue {a}, loro {b}.', { city: tn, gang: gangMsg(gname), ...losses }), t.id);
     return;

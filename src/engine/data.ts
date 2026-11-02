@@ -88,7 +88,7 @@ export const UNITS: UnitDef[] = [
   { id: 'avvocati', name: 'Avvocati', desc: 'Riducono sequestri, arresti e calore.', branch: 'legale', cost: { pulito: 3000 }, upkeep: { pulito: 40 }, att: 0, def: 0, carry: 0, req: { building: { qg: 2 } } },
   { id: 'contabili', name: 'Contabili', desc: 'Lavano di più e trattengono meno.', branch: 'legale', cost: { pulito: 2000 }, upkeep: { pulito: 30 }, att: 0, def: 0, carry: 0 },
   { id: 'guardie', name: 'Guardie giurate', desc: 'Proteggono i front senza calore, ma sono deboli.', branch: 'legale', cost: { pulito: 1500 }, upkeep: { pulito: 15 }, att: 0, def: 4, carry: 0 },
-  { id: 'delfino', name: 'Delfino', desc: "L'erede che governa le città che prendi. Si arruola solo nella capitale, uno alla volta.", branch: 'criminale', cost: { sporco: 300000 }, upkeep: { sporco: 3000 }, att: 0, def: 0, carry: 0, hours: 36 },
+  { id: 'delfino', name: 'Delfino', desc: "L'erede che governa le città che prendi. Si arruola solo nella capitale, uno alla volta.", branch: 'criminale', cost: { sporco: 300000 }, upkeep: { sporco: 1000 }, att: 0, def: 0, carry: 0, hours: 36 },
 ];
 
 export type FlagId = 'licenzaCasino' | 'zonizzazione';

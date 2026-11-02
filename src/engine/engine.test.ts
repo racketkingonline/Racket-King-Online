@@ -197,7 +197,7 @@ describe('motore', () => {
     tick(s, s.missions[0].arriveAt - s.time + 1);
     expect(t.owner).toBe('player');
     expect(t.units.delfino).toBe(1); expect(home(s).units.delfino).toBe(0);
-    expect(rates(s).upkeepSporco).toBeGreaterThanOrEqual(3000);
+    expect(rates(s).upkeepSporco).toBeGreaterThanOrEqual(1000);
     // niente tregua: si può subito colpire un'altra banda
     const other = CITIES_BY_STATE[def(s.capital).stateIdx].map(String).find(id => id !== s.capital && id !== t.id)!;
     home(s).units.soldati = 50;

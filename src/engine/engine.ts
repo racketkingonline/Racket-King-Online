@@ -99,6 +99,8 @@ export type GameState = {
   /** Ultima conquista e ultimo spostamento della capitale; momento d'ingresso nel mondo. */
   lastConquest?: number;
   capitalMovedAt?: number;
+  /** Delfino in arruolamento: binario a parte, non blocca gli altri reclutamenti. */
+  heir?: { start: number; end: number } | null;
   born?: number;
   /** Ritratto scelto dal giocatore (id dell'illustrazione) e introduzione già vista. */
   avatar?: string;
@@ -136,6 +138,7 @@ export type Action =
   | { t: 'posture'; auto: boolean; share: number }
   | { t: 'invest'; amount: number }
   | { t: 'cancelUnits'; city: string; index: number }
+  | { t: 'cancelHeir' }
   | { t: 'recall'; mission: number }
   | { t: 'setCapital'; city: string }
   | { t: 'cancelMove'; city: string }
@@ -629,6 +632,11 @@ function step(s: GameState, dt: number) {
     timers(s, c);
     mayorStep(s, c, h);
   }
+  if (s.heir && s.heir.end <= s.time) {
+    const cap = s.cities[s.capital]?.owner === 'player' ? s.cities[s.capital] : owned(s)[0];
+    s.heir = null;
+    if (cap) { cap.units.delfino++; s.stats.invested += totalCost(UNITS.find(u => u.id === 'delfino')!.cost); log(s, 'good', M('{city}: il tuo Delfino è pronto. Mandalo con un assalto per prendere una città.', { city: cityName(cap.id) }), cap.id); }
+  }
   if (s.researchQueue && s.researchQueue.end <= s.time) {
     const j = s.researchQueue; s.researchQueue = null;
     s.research[j.id] = j.level; s.stats.invested += totalCost(j.cost);
@@ -1046,7 +1054,7 @@ export const needsDelfino = (c: CityState) => !(c.proxy !== undefined && c.proxy
 export function delfini(s: GameState) {
   let free = 0, regents = 0;
   for (const c of owned(s)) { if (c.id === s.capital) free += c.units.delfino; else regents += Math.min(1, c.units.delfino); }
-  const training = owned(s).some(c => c.unitQueue.some(j => j.id === 'delfino'));
+  const training = !!s.heir || owned(s).some(c => c.unitQueue.some(j => j.id === 'delfino'));
   return { free, regents, training };
 }
 const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
@@ -1254,6 +1262,11 @@ export function act(s: GameState, a: Action): Result {
       pay(s, c.buildQueue.cost, c, -1); c.buildQueue = null;
       return okm(N('Interrotto: i soldi tornano, il tempo passato è perso.'));
     }
+    case 'cancelHeir': {
+      if (!s.heir) return fail('Non stai arruolando un Delfino.');
+      s.heir = null; pay(s, UNITS.find(u => u.id === 'delfino')!.cost, undefined, -1);
+      return okm(N('Arruolamento del Delfino annullato, soldi restituiti.'));
+    }
     case 'cancelUnits': {
       const c = mine(a.city); if (!c) return fail('Questa città non è tua.');
       const j = c.unitQueue[a.index]; if (!j) return fail('Niente da annullare.');
@@ -1313,6 +1326,7 @@ export function act(s: GameState, a: Action): Result {
       const cost = scale(d.cost, n);
       if (!canAfford(s, cost)) return fail('Non hai abbastanza soldi.');
       pay(s, cost);
+      if (a.id === 'delfino') { s.heir = { start: s.time, end: s.time + unitHours(c, 'delfino') * H }; return { ok: true }; }
       const per = unitHours(c, a.id) * H;
       c.unitQueue.push({ id: a.id, n, done: 0, per, nextAt: c.unitQueue.length ? 0 : s.time + per });
       return { ok: true };
@@ -1553,6 +1567,7 @@ export function vacationDaysLeft(s: GameState) {
 function endVacation(s: GameState) {
   const v = s.vacation!; const d = v.until - v.start; s.vacation = null;
   if (s.researchQueue) { s.researchQueue.start += d; s.researchQueue.end += d; }
+  if (s.heir) { s.heir.start += d; s.heir.end += d; }
   for (const c of owned(s)) {
     if (c.buildQueue) { c.buildQueue.start += d; c.buildQueue.end += d; }
     for (const j of c.unitQueue) j.nextAt += d;

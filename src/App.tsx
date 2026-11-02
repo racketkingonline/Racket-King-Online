@@ -730,6 +730,7 @@ function Ongoing({ s, run }: { s: GameState; run: (a: Action) => void }) {
     if (x.campaign) lines.push(<Progress key={'cp' + x.id} s={s} icon="politica-campagna" start={x.campaign.ends - K.campaignHours * 3600} end={x.campaign.ends} label={`${cn}: ${t('Campagna elettorale')}`} onCancel={() => run({ t: 'cancelCampaign', city: x.id })} warn={t('Ritirarti dalla campagna? I soldi spesi sono persi.')} />);
     lines.push(<UnitQueue key={'u' + x.id} s={s} c={x} run={run} />);
   }
+  if (s.heir) lines.push(<Progress key="heir" s={s} icon="crew-delfino" start={s.heir.start} end={s.heir.end} label={t('{city}: arruolo un Delfino', { city: cityName(s.capital) })} onCancel={() => run({ t: 'cancelHeir' })} warn={t('Interrompere? I soldi tornano, il tempo passato è perso.')} />);
   if (s.researchQueue) lines.push(<Progress key="r" s={s} icon={`knowhow-${s.researchQueue.id}`} start={s.researchQueue.start} end={s.researchQueue.end} label={t('Know-how: {name} → {n}', { name: t(RESEARCH.find(x => x.id === s.researchQueue!.id)!.name), n: s.researchQueue.level })} onCancel={() => run({ t: 'cancel', queue: 'research' })} warn={t('Interrompere lo studio? I soldi tornano, il tempo passato è perso.')} />);
   for (const m of s.missions) {
     const travel = Math.max(1, m.returnAt - m.arriveAt);
@@ -737,7 +738,7 @@ function Ongoing({ s, run }: { s: GameState; run: (a: Action) => void }) {
     else if (!m.stay) lines.push(<Progress key={'m' + m.id} back s={s} icon="missione-rientro" start={m.arriveAt} end={m.returnAt} label={`${m.recalled ? t('Richiamati') : t('Rientro')} ${cityName(m.to)} → ${cityName(m.from)} · ${squadText(m.units)}${m.loot ? ' · ' + money(m.loot) : ''}`} />);
   }
   const shown = lines.filter(Boolean);
-  return shown.length && (owned(s).some(x => x.buildQueue || x.move || x.campaign || x.unitQueue.length) || s.researchQueue || s.missions.length) ? <div className="ongoing">{shown}</div> : <p className="muted">{t('Nessun lavoro in corso. Il tempo è denaro.')}</p>;
+  return shown.length && (owned(s).some(x => x.buildQueue || x.move || x.campaign || x.unitQueue.length) || s.researchQueue || s.heir || s.missions.length) ? <div className="ongoing">{shown}</div> : <p className="muted">{t('Nessun lavoro in corso. Il tempo è denaro.')}</p>;
 }
 const MISSION_LABEL: Record<MissionKind, string> = { raid: 'Colpo alla cassa', spy: 'Spionaggio', assault: 'Assalto', transfer: 'Trasferimento', strike: 'Colpo a un edificio' };
 
@@ -793,6 +794,7 @@ function Crew({ s, c, run }: P) {
                 <div>{!isD && <input type="number" min={1} value={k} onChange={e => setN({ ...n, [u.id]: Math.max(1, Number(e.target.value) || 1) })} aria-label={t('Quanti {unit}', { unit: t(u.name) })} />} <CostLine cost={cost} s={s} /> <span className="muted">· {isD ? duration(unitHours(c, u.id) * 3600) : t('{d} ciascuno', { d: duration(unitHours(c, u.id) * 3600) })}</span></div>
                 <button disabled={!canAfford(s, cost) || (isD && delfini(s).training)} onClick={() => run({ t: 'recruit', city: c.id, id: u.id, n: k })}>{t('Recluta')}</button>
               </div>
+              {isD && s.heir && <div className="card-queue"><Progress s={s} start={s.heir.start} end={s.heir.end} label={t('in addestramento a {city}', { city: cityName(s.capital) })} onCancel={() => run({ t: 'cancelHeir' })} warn={t('Interrompere? I soldi tornano, il tempo passato è perso.')} /></div>}
               {isD && <p className="hint">{t('Serve per prendere una città: parte con l\'assalto (o con l\'acquisto) e resta a governarla, con il suo stipendio. Se l\'assalto fallisce, muore. Non serve per la capitale di un altro boss: lui diventa tuo vassallo.')}</p>}
 
             </Card>

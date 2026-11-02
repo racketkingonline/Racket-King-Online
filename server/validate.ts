@@ -48,6 +48,7 @@ export function cleanAction(raw: unknown): Action | ServerAction | null {
     case 'invest': return isNum(a.amount, 1, 1e13) ? { t, amount: a.amount as number } : null;
     case 'cancelUnits': return isCity(a.city) && isInt(a.index, 0, 99) ? { t, city: a.city as string, index: a.index as number } : null;
     case 'recall': return isInt(a.mission, 1, 1e9) ? { t, mission: a.mission as number } : null;
+    case 'cancelHeir': return { t };
     case 'cancelMove': case 'cancelCampaign': case 'setCapital': return isCity(a.city) ? { t, city: a.city as string } : null;
     // azioni del server
     case 'avatar': return typeof a.id === 'string' && /^avatar-\d\d-[a-z-]+$/.test(a.id) ? { t, id: a.id } : null;

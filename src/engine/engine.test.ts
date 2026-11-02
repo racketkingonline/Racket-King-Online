@@ -183,7 +183,13 @@ describe('motore', () => {
     expect(no.ok).toBe(false); expect(no.m?.k ?? no.msg).toMatch(/Delfino/);
     expect(act(s, { t: 'recruit', city: s.capital, id: 'delfino', n: 1 }).ok).toBe(true);
     expect(act(s, { t: 'recruit', city: s.capital, id: 'delfino', n: 1 }).ok).toBe(false);
-    tick(s, 36 * H + 60);
+    // il Delfino non blocca gli altri reclutamenti
+    expect(act(s, { t: 'recruit', city: s.capital, id: 'picchiatori', n: 2 }).ok).toBe(true);
+    const before = home(s).units.picchiatori;
+    tick(s, 2 * H);
+    expect(home(s).units.picchiatori).toBeGreaterThanOrEqual(before + 2);
+    expect(home(s).units.delfino).toBe(0);
+    tick(s, 34 * H + 60);
     expect(home(s).units.delfino).toBe(1);
     home(s).units.soldati = 120;
     expect(act(s, { t: 'mission', kind: 'raid', from: s.capital, to: t.id, units: { soldati: 10, delfino: 1 } }).ok).toBe(false);

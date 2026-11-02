@@ -290,4 +290,6 @@ export const EN_ONLINE: Record<string, string> = {
   "uno in arruolamento": "one in training",
   "{a} pronti nella capitale, {b} reggenti": "{a} ready in the capital, {b} regents",
   "È la capitale di {name}: se prendi il suo QG non ti serve il Delfino, lui diventa tuo vassallo.": "It's {name}'s capital: if you take the HQ you don't need an heir, he becomes your vassal.",
+  "{city}: arruolo un Delfino": "{city}: recruiting an heir",
+  "in addestramento a {city}": "training in {city}",
 };

@@ -300,4 +300,7 @@ export const EN_ENGINE: Record<string, string> = {
   "Il Delfino parte solo per un assalto: è lui che prenderà la città.": "The heir only goes on an assault: he's the one who'll take the city.",
   "Basta un Delfino per città.": "One heir per city is enough.",
   "Una città presa a un altro boss non può diventare la tua capitale.": "A city taken from another boss can't become your capital.",
+  "{city}: il tuo Delfino è pronto. Mandalo con un assalto per prendere una città.": "{city}: your heir is ready. Send him with an assault to take a city.",
+  "Arruolamento del Delfino annullato, soldi restituiti.": "Heir recruitment cancelled, money refunded.",
+  "Non stai arruolando un Delfino.": "You're not recruiting an heir.",
 };

@@ -147,6 +147,24 @@ img.logo { display: block; height: 62px; width: auto; margin: 2px 0 8px; filter:
 .progress .bar { height: 6px; background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line); }
 .progress .bar div { height: 100%; background: linear-gradient(90deg, var(--gold-dim), var(--gold)); box-shadow: 0 0 8px rgba(200, 176, 130, 0.5); transition: width .3s; }
 .progress .row { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--muted); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.06em; }
+.progress { padding: 8px 10px; background: rgba(255,255,255,0.025); border: 1px solid var(--line); }
+.progress .row.top { margin: 0 0 6px; }
+.progress .what { display: inline-flex; align-items: center; gap: 6px; color: var(--text, #ddd); }
+.progress .eta { color: var(--gold); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.progress .bar { height: 8px; position: relative; overflow: hidden; }
+.progress .bar div { position: relative; background-image: repeating-linear-gradient(-45deg, rgba(0,0,0,0.22) 0 6px, transparent 6px 12px), linear-gradient(90deg, var(--gold-dim), var(--gold)); background-size: 17px 17px, 100% 100%; animation: rk-stripes 0.8s linear infinite; }
+.progress.back .bar div { background-image: repeating-linear-gradient(-45deg, rgba(0,0,0,0.22) 0 6px, transparent 6px 12px), linear-gradient(90deg, #4a5a6a, #8aa3b8); box-shadow: none; }
+.progress .spin { width: 11px; height: 11px; border-radius: 50%; border: 2px solid rgba(200,176,130,0.25); border-top-color: var(--gold); animation: rk-spin 0.9s linear infinite; flex: none; }
+.progress.back .spin { border-top-color: #8aa3b8; }
+.progress .confirm-line { color: #e0a080; text-transform: none; letter-spacing: 0; display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.progress .confirm-line button { padding: 2px 8px; font-size: 12px; }
+.ongoing { display: grid; gap: 6px; }
+.queued { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px dashed var(--line); color: var(--muted); font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.06em; }
+.queued span { flex: 1; }
+.card-queue { margin: 6px 0; }
+@keyframes rk-stripes { from { background-position: 0 0, 0 0; } to { background-position: 17px 0, 0 0; } }
+@keyframes rk-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .progress .bar div, .progress .spin { animation: none; } }
 .qline { font-size: 14px; padding: 4px 0; border-bottom: 1px solid rgba(150, 180, 190, 0.08); }
 
 .seg { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; } .seg button { flex: 1; }

@@ -202,6 +202,11 @@ export class World {
     }
     const r = engineAct(sl.s, a);
     if (r.ok && a.t === 'mission' && a.kind !== 'transfer') this.notifyIncoming(sl);
+    if (r.ok && a.t === 'recall') {
+      // la vittima non vede più l'attacco arrivare, e non riceve rapporti
+      const key = `${sl.id}:${a.mission}`;
+      for (const v of this.slots.values()) if (v.incoming.some(x => x.key === key)) { v.incoming = v.incoming.filter(x => x.key !== key); v.seen.push('res:' + key); this.onChange(v.id); }
+    }
     return r;
   }
 
@@ -354,7 +359,7 @@ export class World {
         c.lots.forEach((l, i) => { if (l?.closedUntil && !snap.closed[i] && vc.lots[i]) { vc.lots[i]!.closedUntil = l.closedUntil; vc.lots[i]!.protectedUntil = l.protectedUntil; closed++; } });
         // una missione appena risolta contro questa città: rapporto per la vittima
         for (const m of s.missions) {
-          if (!m.resolved || m.to !== id) continue;
+          if (!m.resolved || m.recalled || m.to !== id) continue;
           const key = 'res:' + sl.id + ':' + m.id; if (v.seen.includes(key)) continue; v.seen.push(key);
           const ar = s.reports.find(r => r.city === id && Math.abs(r.t - m.arriveAt) <= 120 && r.kind !== 'defense');
           v.incoming = v.incoming.filter(x => x.key !== `${sl.id}:${m.id}`);

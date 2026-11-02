@@ -381,6 +381,35 @@ describe('motore', () => {
     expect(act(s, { t: 'vacation', days: 19 }).ok).toBe(false);
   });
 
+  it('interrompere: arruolamenti (restano i già fatti), missioni richiamate, coda', () => {
+    const s = newGame(45); const c = home(s); s.res.sporco = 1e7; s.res.pulito = 1e7; c.units.picchiatori = 0;
+    expect(act(s, { t: 'recruit', city: c.id, id: 'picchiatori', n: 10 }).ok).toBe(true);
+    expect(act(s, { t: 'recruit', city: c.id, id: 'picchiatori', n: 5 }).ok).toBe(true);
+    expect(c.unitQueue.length).toBe(2);
+    const per = c.unitQueue[0].per;
+    tick(s, per * 3 + 1);
+    const done = c.unitQueue[0].done; expect(done).toBeGreaterThan(0);
+    const money = s.res.sporco + s.res.pulito;
+    expect(act(s, { t: 'cancelUnits', city: c.id, index: 1 }).ok).toBe(true);
+    expect(c.unitQueue.length).toBe(1);
+    expect(act(s, { t: 'cancelUnits', city: c.id, index: 0 }).ok).toBe(true);
+    expect(c.unitQueue.length).toBe(0);
+    expect(c.units.picchiatori).toBe(done);
+    expect(s.res.sporco + s.res.pulito).toBeGreaterThan(money);
+    // missione richiamata: niente scontro, gli uomini tornano
+    const t = npc(s); c.units.soldati = 100;
+    expect(act(s, { t: 'mission', kind: 'raid', from: s.capital, to: t.id, units: { soldati: 100 } }).ok).toBe(true);
+    const m = s.missions[s.missions.length - 1]; const share = t.gang.share;
+    tick(s, 60);
+    expect(act(s, { t: 'recall', mission: m.id }).ok).toBe(true);
+    expect(act(s, { t: 'recall', mission: m.id }).ok).toBe(false);
+    expect(m.returnAt - s.time).toBeLessThanOrEqual(120);
+    tick(s, m.returnAt - s.time + 1);
+    expect(t.gang.share).toBe(share);
+    expect(c.units.soldati).toBe(100);
+    expect(s.missions.find(x => x.id === m.id)).toBeUndefined();
+  });
+
   it('postura difensiva: all\'avviso recluta da sola', () => {
     const s = newGame(43); const c = home(s); s.res.sporco = 1e5; c.units.picchiatori = 0;
     expect(autoDefend(s, c, 200)).toBe(0);

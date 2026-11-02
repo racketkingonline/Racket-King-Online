@@ -19,13 +19,13 @@ export type UseKind = 'racket' | 'front' | 'building';
 export type HostedId = 'qg' | 'cassaforte';
 /** Un edificio su un lotto. hosted = QG o cassaforte nascosti dentro; closedUntil = chiuso dopo un colpo. */
 export type LotUse = { kind: UseKind; id: string; level: number; hosted?: { id: HostedId; level: number }; closedUntil?: number; protectedUntil?: number };
-export type MoveJob = { id: HostedId; level: number; toLot: number; host: boolean; end: number };
+export type MoveJob = { id: HostedId; level: number; toLot: number; host: boolean; end: number; start?: number; from?: number; fromHost?: boolean };
 export type BuildJob = { lot: number; kind: UseKind; id: string; level: number; start: number; end: number; cost: Cost };
 export type ResearchJob = { id: ResearchId; level: number; start: number; end: number; cost: Cost };
 export type UnitJob = { id: UnitId; n: number; done: number; per: number; nextAt: number };
 export type Squad = Partial<Record<UnitId, number>>;
 export type MissionKind = 'raid' | 'spy' | 'assault' | 'transfer' | 'strike';
-export type Mission = { id: number; kind: MissionKind; from: string; to: string; units: Squad; arriveAt: number; returnAt: number; resolved: boolean; loot: number; stay: boolean; lot?: number };
+export type Mission = { id: number; kind: MissionKind; from: string; to: string; units: Squad; arriveAt: number; returnAt: number; resolved: boolean; loot: number; stay: boolean; lot?: number; recalled?: boolean };
 /** label = nome italiano (chiave di traduzione); m = versione traducibile se il nome ha parti variabili. */
 export type Effect = { id: string; until: number; label: string; m?: Msg; category?: Category; mult?: number; pressure?: number };
 export type Intel = { at: number; units: Squad; stash: number; share: number; defense: number; quality?: 'partial' | 'complete'; lots?: (LotUse | null)[]; qgKnown?: boolean };
@@ -129,7 +129,11 @@ export type Action =
   | { t: 'launder'; share: number }
   | { t: 'vacation'; days: number }
   | { t: 'posture'; auto: boolean; share: number }
-  | { t: 'invest'; amount: number };
+  | { t: 'invest'; amount: number }
+  | { t: 'cancelUnits'; city: string; index: number }
+  | { t: 'recall'; mission: number }
+  | { t: 'cancelMove'; city: string }
+  | { t: 'cancelCampaign'; city: string };
 
 export type Result = { ok: true; msg?: string; m?: Msg } | { ok: false; msg: string; m?: Msg };
 
@@ -1227,12 +1231,46 @@ export function act(s: GameState, a: Action): Result {
     case 'cancel': {
       if (a.queue === 'research') {
         if (!s.researchQueue) return fail('Niente da annullare.');
-        pay(s, s.researchQueue.cost, undefined, -1); s.researchQueue = null; return okm(N('Annullato, soldi restituiti.'));
+        pay(s, s.researchQueue.cost, undefined, -1); s.researchQueue = null; return okm(N('Interrotto: i soldi tornano, il tempo passato è perso.'));
       }
       const c = a.city ? mine(a.city) : null;
       if (!c?.buildQueue) return fail('Niente da annullare.');
       pay(s, c.buildQueue.cost, c, -1); c.buildQueue = null;
-      return okm(N('Annullato, soldi restituiti.'));
+      return okm(N('Interrotto: i soldi tornano, il tempo passato è perso.'));
+    }
+    case 'cancelUnits': {
+      const c = mine(a.city); if (!c) return fail('Questa città non è tua.');
+      const j = c.unitQueue[a.index]; if (!j) return fail('Niente da annullare.');
+      const d = UNITS.find(u => u.id === j.id)!;
+      // chi è già arruolato resta; si restituiscono i soldi di chi non lo è ancora (anche di quello a metà)
+      pay(s, scale(d.cost, j.n - j.done), undefined, -1);
+      c.unitQueue.splice(a.index, 1);
+      if (a.index === 0 && c.unitQueue[0]) c.unitQueue[0].nextAt = s.time + c.unitQueue[0].per;
+      return okm(j.done ? M('Arruolamento interrotto: restano i {n} già arruolati, i soldi degli altri tornano.', { n: j.done }) : N('Arruolamento annullato, soldi restituiti.'));
+    }
+    case 'recall': {
+      const m = s.missions.find(x => x.id === a.mission); if (!m) return fail('Missione non trovata.');
+      if (m.resolved || s.time >= m.arriveAt) return fail('Sono già arrivati: ora tornano da soli.');
+      const travel = Math.max(0, m.returnAt - m.arriveAt); const left = m.arriveAt - travel;
+      const back = Math.max(60, s.time - left);
+      m.resolved = true; m.recalled = true; m.loot = 0; m.stay = false; m.arriveAt = s.time; m.returnAt = s.time + back;
+      log(s, 'info', M('Missione verso {city} annullata: gli uomini tornano indietro, a casa tra {d}.', { city: cityName(m.to), d: duration(back) }), m.from);
+      return { ok: true };
+    }
+    case 'cancelMove': {
+      const c = mine(a.city); if (!c?.move) return fail('Niente da annullare.');
+      const mv = c.move; c.move = null;
+      const at = mv.from !== undefined ? c.lots[mv.from] : undefined;
+      if (mv.from !== undefined && mv.fromHost && at && !at.hosted && (at.kind === 'front' || at.kind === 'racket')) at.hosted = { id: mv.id, level: mv.level };
+      else if (mv.from !== undefined && !mv.fromHost && !at) c.lots[mv.from] = { kind: 'building', id: mv.id, level: mv.level };
+      else { const i = freeLots(c, s)[0]; if (i !== undefined) c.lots[i] = { kind: 'building', id: mv.id, level: mv.level }; }
+      autoPlace(c);
+      return okm(N('Trasloco interrotto: resta dov\'era, i soldi del trasloco sono persi.'));
+    }
+    case 'cancelCampaign': {
+      const c = mine(a.city); if (!c?.campaign) return fail('Niente da annullare.');
+      c.campaign = null;
+      return okm(N('Campagna ritirata: i soldi spesi sono persi.'));
     }
     case 'recruit': {
       const c = mine(a.city); if (!c) return fail('Questa città non è tua.');
@@ -1384,7 +1422,7 @@ export function act(s: GameState, a: Action): Result {
       if (!canAfford(s, cost)) return fail('Non hai abbastanza soldi.');
       pay(s, cost);
       if (src.hosted) delete c.lots[src.lot]!.hosted; else c.lots[src.lot] = null;
-      c.move = { id: a.what, level: src.level, toLot: a.toLot, host, end: s.time + K.moveHours * H };
+      c.move = { id: a.what, level: src.level, toLot: a.toLot, host, end: s.time + K.moveHours * H, start: s.time, from: src.lot, fromHost: !!src.hosted };
       if (!src.hosted) trimTurf(c);
       return okm(M(a.what === 'qg' ? 'Trasloco iniziato: {h} ore in cui il QG non lavora.' : 'Trasloco iniziato: {h} ore in cui la cassaforte non protegge.', { h: K.moveHours }));
     }

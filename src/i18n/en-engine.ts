@@ -277,4 +277,10 @@ export const EN_ENGINE: Record<string, string> = {
   'Giro di vite federale': 'Federal crackdown',
   "L'FBI punta i pesci grossi: per 21 giorni le soglie di polizia dei primi 10% in classifica scendono di 15 punti.": 'The FBI goes after the big fish: for 21 days the police thresholds of the top 10% on the leaderboard drop by 15 points.',
   'Hai appena conquistato una città: per {d} le bande ti lasciano in pace, e tu lasci in pace loro.': 'You just took a city: for {d} the gangs leave you alone, and you leave them alone.',
+  "Arruolamento annullato, soldi restituiti.": "Recruitment cancelled, money refunded.",
+  "Arruolamento interrotto: restano i {n} già arruolati, i soldi degli altri tornano.": "Recruitment stopped: the {n} already recruited stay, the money for the rest comes back.",
+  "Campagna ritirata: i soldi spesi sono persi.": "Campaign withdrawn: the money spent is lost.",
+  "Interrotto: i soldi tornano, il tempo passato è perso.": "Stopped: the money comes back, the time spent is lost.",
+  "Missione verso {city} annullata: gli uomini tornano indietro, a casa tra {d}.": "Mission to {city} called off: the men turn back, home in {d}.",
+  "Trasloco interrotto: resta dov'era, i soldi del trasloco sono persi.": "Move stopped: it stays where it was, the moving money is lost.",
 };

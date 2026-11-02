@@ -328,14 +328,39 @@ function Card({ title, level, desc, children, locked, active, art, icon }: { tit
   );
 }
 
-function Progress({ s, start, end, label, onCancel }: { s: GameState; start: number; end: number; label: string; onCancel?: () => void }) {
-  const p = Math.min(100, ((s.time - start) / Math.max(1, end - start)) * 100);
+/** Un'operazione in corso: barra animata, percentuale, tempo che manca e "interrompi" (con conferma: si perdono i progressi). */
+function Progress({ s, start, end, label, onCancel, icon, warn, back }: { s: GameState; start: number; end: number; label: string; onCancel?: () => void; icon?: string; warn?: string; back?: boolean }) {
+  const [ask, setAsk] = useState(false);
+  const p = Math.min(100, Math.max(0, ((s.time - start) / Math.max(1, end - start)) * 100));
   return (
-    <div className="progress">
+    <div className={`progress ${back ? 'back' : ''}`}>
+      <div className="row top"><span className="what"><span className="spin" aria-hidden="true" />{icon && <Ico id={icon} size="xs" />}{label}</span><span className="eta">{Math.floor(p)}% · {duration(Math.max(0, end - s.time))}</span></div>
       <div className="bar"><div style={{ width: `${p}%` }} /></div>
-      <div className="row"><span>{label} · {duration(end - s.time)}</span>{onCancel && <button className="link" onClick={onCancel}>{t('annulla')}</button>}</div>
+      {onCancel && <div className="row">{ask
+        ? <span className="confirm-line">{warn ?? t('Interrompere? Il tempo passato è perso.')} <button className="danger" onClick={() => { setAsk(false); onCancel(); }}>{t('Sì, interrompi')}</button> <button onClick={() => setAsk(false)}>{t('No')}</button></span>
+        : <button className="link" onClick={() => setAsk(true)}>{t('interrompi')}</button>}</div>}
     </div>
   );
+}
+/** Un'operazione in coda (non ancora partita). */
+function Queued({ label, icon, onCancel }: { label: string; icon?: string; onCancel?: () => void }) {
+  return <div className="queued"><Ico id="stato-coda" size="xs" />{icon && <Ico id={icon} size="xs" />}<span>{label}</span>{onCancel && <button className="link" onClick={onCancel}>{t('togli dalla coda')}</button>}</div>;
+}
+/** Arruolamenti di una città: chi si sta addestrando (con la barra) e chi aspetta in coda. */
+function UnitQueue({ s, c, run, only }: { s: GameState; c: CityState; run: (a: Action) => void; only?: UnitId }) {
+  const items = c.unitQueue.map((j, i) => ({ j, i })).filter(x => !only || x.j.id === only);
+  if (!items.length) return null;
+  return <>{items.map(({ j, i }) => {
+    const u = UNITS.find(x => x.id === j.id)!; const name = t(u.name).toLowerCase();
+    if (i === 0) {
+      const left = j.n - j.done;
+      return <Progress key={i} s={s} icon={`crew-${j.id}`} start={j.nextAt - j.per} end={j.nextAt}
+        label={t('{city}: arruolo {name} {k} di {n}', { city: cityName(c.id), name, k: j.done + 1, n: j.n }) + (left > 1 ? ' · ' + t('tutti tra {d}', { d: duration(j.nextAt - s.time + (left - 1) * j.per) }) : '')}
+        warn={j.done ? t('Interrompere? Restano i {n} già arruolati, gli altri non arrivano (i soldi tornano).', { n: j.done }) : t('Interrompere? I soldi tornano, il tempo passato è perso.')}
+        onCancel={() => run({ t: 'cancelUnits', city: c.id, index: i })} />;
+    }
+    return <Queued key={i} icon={`crew-${j.id}`} label={t('{city}: in coda {n} {name} ({d})', { city: cityName(c.id), n: j.n, name, d: duration(j.n * j.per) })} onCancel={() => run({ t: 'cancelUnits', city: c.id, index: i })} />;
+  })}</>;
 }
 
 const Stat = ({ k, v, tone }: { k: string; v: React.ReactNode; tone?: string }) => <div className={`stat ${tone ?? ''}`}><span>{k}</span><b>{v}</b></div>;
@@ -500,7 +525,7 @@ function Overview({ s, c, run }: P) {
 
       <section className="panel wide">
         <h2 className="with-ico"><Ico id="stato-coda" size="md" />{t('In corso')}</h2>
-        <Ongoing s={s} />
+        <Ongoing s={s} run={run} />
         <h3 className="sub">{t('Ultimi rapporti')}</h3>
 
         <LogList s={s} n={6} />
@@ -696,15 +721,23 @@ function Ranking({ s }: { s: GameState }) {
   );
 }
 
-function Ongoing({ s }: { s: GameState }) {
+function Ongoing({ s, run }: { s: GameState; run: (a: Action) => void }) {
   const lines: React.ReactNode[] = [];
   for (const x of owned(s)) {
-    if (x.buildQueue) lines.push(<Progress key={'b' + x.id} s={s} start={x.buildQueue.start} end={x.buildQueue.end} label={`${cityName(x.id)}: ${t(nameOf(x.buildQueue.kind, x.buildQueue.id))} → ${x.buildQueue.level}`} />);
-    x.unitQueue.forEach((j, i) => lines.push(<div key={'u' + x.id + i} className="qline"><Ico id={`crew-${j.id}`} size="xs" />{t('{city}: reclutamento {done}/{n} {unit}', { city: cityName(x.id), done: j.done, n: j.n, unit: t(UNITS.find(u => u.id === j.id)!.name).toLowerCase() })}</div>));
+    const cn = cityName(x.id);
+    if (x.buildQueue) lines.push(<Progress key={'b' + x.id} s={s} icon={lotIcon(x.buildQueue.kind, x.buildQueue.id)} start={x.buildQueue.start} end={x.buildQueue.end} label={`${cn}: ${t(nameOf(x.buildQueue.kind, x.buildQueue.id))} → ${x.buildQueue.level}`} onCancel={() => run({ t: 'cancel', city: x.id, queue: 'build' })} warn={t('Interrompere il cantiere? I soldi tornano, il tempo passato è perso.')} />);
+    if (x.move) lines.push(<Progress key={'mv' + x.id} s={s} icon={x.move.id === 'qg' ? 'struttura-qg' : 'struttura-cassaforte'} start={x.move.start ?? x.move.end - K.moveHours * 3600} end={x.move.end} label={`${cn}: ${x.move.id === 'qg' ? t('Trasloco del QG') : t('Trasloco della cassaforte')}`} onCancel={() => run({ t: 'cancelMove', city: x.id })} warn={t('Interrompere il trasloco? Resta dov\'era e i soldi del trasloco sono persi.')} />);
+    if (x.campaign) lines.push(<Progress key={'cp' + x.id} s={s} icon="politica-campagna" start={x.campaign.ends - K.campaignHours * 3600} end={x.campaign.ends} label={`${cn}: ${t('Campagna elettorale')}`} onCancel={() => run({ t: 'cancelCampaign', city: x.id })} warn={t('Ritirarti dalla campagna? I soldi spesi sono persi.')} />);
+    lines.push(<UnitQueue key={'u' + x.id} s={s} c={x} run={run} />);
   }
-  if (s.researchQueue) lines.push(<Progress key="r" s={s} start={s.researchQueue.start} end={s.researchQueue.end} label={t('Know-how: {name} → {n}', { name: t(RESEARCH.find(x => x.id === s.researchQueue!.id)!.name), n: s.researchQueue.level })} />);
-  for (const m of s.missions) lines.push(<div key={'m' + m.id} className="qline"><Ico id={m.resolved ? 'missione-rientro' : MISSION_ICON[m.kind]} size="xs" />{t(MISSION_LABEL[m.kind])} {cityName(m.from)} → {cityName(m.to)}: {squadText(m.units)} · {m.resolved ? t('rientro tra {d}', { d: duration(m.returnAt - s.time) }) : t('arrivo tra {d}', { d: duration(m.arriveAt - s.time) })}</div>);
-  return lines.length ? <>{lines}</> : <p className="muted">{t('Nessun lavoro in corso. Il tempo è denaro.')}</p>;
+  if (s.researchQueue) lines.push(<Progress key="r" s={s} icon={`knowhow-${s.researchQueue.id}`} start={s.researchQueue.start} end={s.researchQueue.end} label={t('Know-how: {name} → {n}', { name: t(RESEARCH.find(x => x.id === s.researchQueue!.id)!.name), n: s.researchQueue.level })} onCancel={() => run({ t: 'cancel', queue: 'research' })} warn={t('Interrompere lo studio? I soldi tornano, il tempo passato è perso.')} />);
+  for (const m of s.missions) {
+    const travel = Math.max(1, m.returnAt - m.arriveAt);
+    if (!m.resolved) lines.push(<Progress key={'m' + m.id} s={s} icon={MISSION_ICON[m.kind]} start={m.arriveAt - travel} end={m.arriveAt} label={`${t(MISSION_LABEL[m.kind])} ${cityName(m.from)} → ${cityName(m.to)} · ${squadText(m.units)}`} onCancel={() => run({ t: 'recall', mission: m.id })} warn={t('Richiamare gli uomini? Tornano indietro e la missione è persa.')} />);
+    else if (!m.stay) lines.push(<Progress key={'m' + m.id} back s={s} icon="missione-rientro" start={m.arriveAt} end={m.returnAt} label={`${m.recalled ? t('Richiamati') : t('Rientro')} ${cityName(m.to)} → ${cityName(m.from)} · ${squadText(m.units)}${m.loot ? ' · ' + money(m.loot) : ''}`} />);
+  }
+  const shown = lines.filter(Boolean);
+  return shown.length && (owned(s).some(x => x.buildQueue || x.move || x.campaign || x.unitQueue.length) || s.researchQueue || s.missions.length) ? <div className="ongoing">{shown}</div> : <p className="muted">{t('Nessun lavoro in corso. Il tempo è denaro.')}</p>;
 }
 const MISSION_LABEL: Record<MissionKind, string> = { raid: 'Colpo alla cassa', spy: 'Spionaggio', assault: 'Assalto', transfer: 'Trasferimento', strike: 'Colpo a un edificio' };
 
@@ -719,7 +752,7 @@ function Research({ s, run }: P) {
           return (
             <Card key={d.id} title={t(d.name)} level={L} desc={t(d.desc)} locked={miss} art={`knowhow-${d.id}`} icon={`knowhow-${d.id}`}>
               {q && q.id === d.id
-                ? <Progress s={s} start={q.start} end={q.end} label={t('Livello {n}', { n: q.level })} onCancel={() => run({ t: 'cancel', queue: 'research' })} />
+                ? <Progress s={s} start={q.start} end={q.end} label={t('Livello {n}', { n: q.level })} onCancel={() => run({ t: 'cancel', queue: 'research' })} warn={t('Interrompere lo studio? I soldi tornano, il tempo passato è perso.')} />
                 : <div className="upg">
                     <div><CostLine cost={cost} s={s} /> <span className="muted">· {duration(researchHours(s, cost) * 3600)}</span></div>
                     <button disabled={!!q || !canAfford(s, cost)} onClick={() => run({ t: 'research', id: d.id })}>{t('Impara il livello {n}', { n: L + 1 })}</button>
@@ -739,6 +772,7 @@ function Crew({ s, c, run }: P) {
   return (
     <>
       <p className="intro">{tj("Uomini di stanza a {city}. Per spostarli in un'altra tua città usa la Mappa.", { city: <b>{cityName(c.id)}</b> })}</p>
+      {c.unitQueue.length > 0 && <section className="panel"><h2 className="with-ico"><Ico id="stato-coda" size="md" />{t('Arruolamenti a {city}', { city: cityName(c.id) })}</h2><UnitQueue s={s} c={c} run={run} /></section>}
       <div className="grid cards">
         {UNITS.map(u => {
           const miss = missing(s, c, u.req); const k = n[u.id] ?? 1;
@@ -753,6 +787,7 @@ function Crew({ s, c, run }: P) {
                 {u.carry > 300 && <Stat k={t('Trasporto')} v={money(u.carry)} />}
                 <Stat k={t('Stipendio')} v={u.upkeep.sporco ? t('{m}/h sporchi', { m: money(u.upkeep.sporco) }) : t('{m}/h puliti', { m: money(u.upkeep.pulito ?? 0) })} />
               </div>
+              {c.unitQueue.some(j => j.id === u.id) && <div className="card-queue">{c.unitQueue[0]?.id === u.id ? <Progress s={s} start={c.unitQueue[0].nextAt - c.unitQueue[0].per} end={c.unitQueue[0].nextAt} label={t('in addestramento: {k} di {n}', { k: c.unitQueue[0].done + 1, n: c.unitQueue[0].n })} /> : <Queued label={t('in coda: {n}', { n: c.unitQueue.filter(j => j.id === u.id).reduce((a, j) => a + j.n - j.done, 0) })} />}</div>}
               <div className="upg">
                 <div><input type="number" min={1} value={k} onChange={e => setN({ ...n, [u.id]: Math.max(1, Number(e.target.value) || 1) })} aria-label={t('Quanti {unit}', { unit: t(u.name) })} /> <CostLine cost={cost} s={s} /> <span className="muted">· {t('{d} ciascuno', { d: duration(unitHours(c, u.id) * 3600) })}</span></div>
                 <button disabled={!canAfford(s, cost)} onClick={() => run({ t: 'recruit', city: c.id, id: u.id, n: k })}>{t('Recluta')}</button>
@@ -937,7 +972,7 @@ function MapTab({ s, c, run }: P) {
 
       <section className="panel wide">
         <h2 className="with-ico"><Ico id="mappa-viaggio" size="md" />{t('Movimenti')}</h2>
-        <Ongoing s={s} />
+        <Ongoing s={s} run={run} />
         <p className="hint">{statesHeld(s).size === 1 ? t('Sei presente in {n} stato su {tot}.', { n: 1, tot: STATES.length }) : t('Sei presente in {n} stati su {tot}.', { n: statesHeld(s).size, tot: STATES.length })} {t("Più tempo passa, più le bande si rafforzano. Ogni città in più abbassa la soglia dell'indagine federale e, oltre il tuo limite di gestione, la resa di tutte le città.")}</p>
 
       </section>
@@ -994,8 +1029,9 @@ function CitySummary({ s, c, run }: P) {
         <Stat k={t('Calore')} v={`${Math.round(c.heat)} → ${Math.round(cr.heatTarget)}`} />
         <Stat k={t('Lotti')} v={t('{used} usati, {free} liberi', { used: c.lots.filter(Boolean).length, free: freeLots(c, s).length })} />
       </div>
-      {c.move && <Progress s={s} start={c.move.end - K.moveHours * 3600} end={c.move.end} label={c.move.id === 'qg' ? t('Trasloco del QG') : t('Trasloco della cassaforte')} />}
-      {c.campaign && <Progress s={s} start={c.campaign.ends - K.campaignHours * 3600} end={c.campaign.ends} label={t('Campagna elettorale')} />}
+      {c.move && <Progress s={s} icon={c.move.id === 'qg' ? 'struttura-qg' : 'struttura-cassaforte'} start={c.move.start ?? c.move.end - K.moveHours * 3600} end={c.move.end} label={c.move.id === 'qg' ? t('Trasloco del QG') : t('Trasloco della cassaforte')} onCancel={() => run({ t: 'cancelMove', city: c.id })} warn={t('Interrompere il trasloco? Resta dov\'era e i soldi del trasloco sono persi.')} />}
+      {c.campaign && <Progress s={s} icon="politica-campagna" start={c.campaign.ends - K.campaignHours * 3600} end={c.campaign.ends} label={t('Campagna elettorale')} onCancel={() => run({ t: 'cancelCampaign', city: c.id })} warn={t('Ritirarti dalla campagna? I soldi spesi sono persi.')} />}
+      <UnitQueue s={s} c={c} run={run} />
       {isMayorOf(s, c.id) && <p className="advice">{t('Sei il sindaco: mandato fino a {when}.', { when: clock(s.mayor!.termEnds) })}</p>}
       <h3 className="sub">{t('Giri sugli isolati')}</h3>
       <TurfSummary s={s} c={c} run={run} />
@@ -1078,7 +1114,7 @@ function BlockPanel({ c, run, block, gang }: P & { block: number; gang: boolean 
 function MovePanel({ s, c, run, what }: P & { what: HostedId }) {
   const [open, setOpen] = useState(false);
   const here = whereIs(c, what);
-  if (c.move) return <p className="hint">{t('Trasloco in corso: {d}.', { d: duration(c.move.end - s.time) })}</p>;
+  if (c.move) return <Progress s={s} icon={c.move.id === 'qg' ? 'struttura-qg' : 'struttura-cassaforte'} start={c.move.start ?? c.move.end - K.moveHours * 3600} end={c.move.end} label={c.move.id === 'qg' ? t('Trasloco del QG') : t('Trasloco della cassaforte')} onCancel={() => run({ t: 'cancelMove', city: c.id })} warn={t('Interrompere il trasloco? Resta dov\'era e i soldi del trasloco sono persi.')} />;
   if (!here) return null;
   const cost = K.moveCostPerLevel * here.level;
   const targets = c.lots.map((l, i) => ({ l, i })).filter(({ l, i }) => i !== here.lot && i < usableLots(s, c) && (l ? (l.kind === 'front' || l.kind === 'racket') && !l.hosted : freeLots(c, s).includes(i)));
@@ -1116,7 +1152,7 @@ function LotPanel({ s, c, run, lot }: P & { lot: number }) {
       <p className="lead small"><b>{t(ZONE_LABEL[z])}</b> · {t(ZONE_DESC[z])}{nearCops ? ' ' + t('Vicino alla centrale di polizia: i racket qui fanno più calore.') : ''}</p>
     </>
   );
-  if (q && q.lot === lot) return <><Art id={lotArt(q.kind, q.id)} className="banner lot" />{head}<Progress s={s} start={q.start} end={q.end} label={t('{name} → livello {n}', { name: t(nameOf(q.kind, q.id)), n: q.level })} onCancel={() => run({ t: 'cancel', city: c.id, queue: 'build' })} /></>;
+  if (q && q.lot === lot) return <><Art id={lotArt(q.kind, q.id)} className="banner lot" />{head}<Progress s={s} start={q.start} end={q.end} label={t('{name} → livello {n}', { name: t(nameOf(q.kind, q.id)), n: q.level })} icon={lotIcon(q.kind, q.id)} onCancel={() => run({ t: 'cancel', city: c.id, queue: 'build' })} warn={t('Interrompere il cantiere? I soldi tornano, il tempo passato è perso.')} /></>;
   if (u) {
     const d = useDef(u.kind, u.id); const cost = upgradeCost(u.kind, u.id, u.level + 1); const miss = missing(s, c, d.req);
     return (
@@ -1226,7 +1262,7 @@ function MayorRace({ s, c, run }: P) {
       {t('Rielezione: almeno {i} di influenza e calore sotto {h}. Uno scandalo (calore oltre {f}) ti fa cadere.', { i: K.reelectInfluence, h: T.retata, f: T.indagine })}
     </div>
   );
-  if (c.campaign) return <Progress s={s} start={c.campaign.ends - K.campaignHours * 3600} end={c.campaign.ends} label={t('Campagna elettorale: tieni il calore sotto la soglia delle retate')} />;
+  if (c.campaign) return <Progress s={s} icon="politica-campagna" start={c.campaign.ends - K.campaignHours * 3600} end={c.campaign.ends} label={t('Campagna elettorale: tieni il calore sotto la soglia delle retate')} onCancel={() => run({ t: 'cancelCampaign', city: c.id })} warn={t('Ritirarti dalla campagna? I soldi spesi sono persi.')} />;
   const reasons: string[] = [];
   if (s.mayor) reasons.push(t('sei già sindaco di {city} (una città per volta)', { city: cityName(s.mayor.city) }));
   if (c.influence < K.influenceCap) reasons.push(t("serve l'influenza al massimo ({a} / {b})", { a: Math.floor(c.influence), b: K.influenceCap }));

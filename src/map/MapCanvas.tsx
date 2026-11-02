@@ -34,13 +34,13 @@ function paths() {
 export type MapMission = { from: string; to: string; p: number; kind: string };
 const EMPTY = new Set<string>();
 type Props = {
-  owned: Set<string>; known: Set<string>; rivals?: Set<string>; capital: string; selected: string; heldStates: Set<number>;
+  owned: Set<string>; known: Set<string>; rivals?: Set<string>; allies?: Set<string>; capital: string; selected: string; heldStates: Set<number>;
   missions: MapMission[]; focus: { id: string; n: number } | null; onSelect: (id: string) => void;
 };
 type View = { k: number; x: number; y: number };
 const TIER_R: Record<string, number> = { 'Metropoli': 5.5, 'Grande città': 4.2, 'Città': 3.1, 'Cittadina': 2.3, 'Paese': 1.7 };
 
-export default function MapCanvas({ owned, known, rivals = EMPTY, capital, selected, heldStates, missions, focus, onSelect }: Props) {
+export default function MapCanvas({ owned, known, rivals = EMPTY, allies = EMPTY, capital, selected, heldStates, missions, focus, onSelect }: Props) {
   const wrap = useRef<HTMLDivElement>(null);
   const cv = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ w: 900, h: 560 });
@@ -96,16 +96,16 @@ export default function MapCanvas({ owned, known, rivals = EMPTY, capital, selec
     const sc = Math.min(1.7, 0.85 + k * 0.05);
     for (let i = 0; i < CITY_COUNT; i++) {
       const r = cityRaw(i); const id = String(i);
-      const special = owned.has(id) || known.has(id) || rivals.has(id) || id === selected;
+      const special = owned.has(id) || known.has(id) || rivals.has(id) || allies.has(id) || id === selected;
       if (r[5] < thresholds.dot && !special) continue;
       const sx = r[3] * s + x, sy = r[4] * s + y;
       if (sx < -10 || sy < -10 || sx > size.w + 10 || sy > size.h + 10) continue;
       vis.push([i, sx, sy]);
       const rad = TIER_R[tierOf(r[5])] * sc * (owned.has(id) ? 1.5 : 1);
       ctx.beginPath(); ctx.arc(sx, sy, rad, 0, Math.PI * 2);
-      ctx.fillStyle = owned.has(id) ? '#c9a45c' : rivals.has(id) ? '#d0574a' : known.has(id) ? '#a2968a' : '#7b7368';
+      ctx.fillStyle = owned.has(id) ? '#c8b082' : rivals.has(id) ? '#e0473b' : allies.has(id) ? '#4f8fe8' : known.has(id) ? '#ffffff' : '#c9c6c0';
       ctx.fill();
-      if (owned.has(id)) { ctx.strokeStyle = '#f0d9a8'; ctx.lineWidth = 1.2; ctx.stroke(); }
+      if (owned.has(id)) { ctx.strokeStyle = '#f3e3c0'; ctx.lineWidth = 1.2; ctx.stroke(); } else if (rivals.has(id) || allies.has(id)) { ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 1; ctx.stroke(); }
     }
     visible.current = vis;
     // missioni
@@ -179,10 +179,11 @@ export default function MapCanvas({ owned, known, rivals = EMPTY, capital, selec
         </div>
       )}
       <div className="legend">
-        <span><i style={{ background: '#c9a45c' }} />{t('tue')}</span>
-        {rivals.size > 0 && <span><i style={{ background: '#d0574a' }} />{t('altri boss')}</span>}
-        <span><i style={{ background: '#a2968a' }} />{t('spiate o colpite')}</span>
-        <span><i style={{ background: '#7b7368' }} />{t('in mano alle bande')}</span>
+        <span><i style={{ background: '#c8b082' }} />{t('tue')}</span>
+        {rivals.size + allies.size > 0 && <><span><i style={{ background: '#e0473b' }} />{t('altri boss')}</span>
+        <span><i style={{ background: '#4f8fe8' }} />{t('alleati')}</span></>}
+        <span><i style={{ background: '#ffffff' }} />{t('bande che conosci')}</span>
+        <span><i style={{ background: '#c9c6c0' }} />{t('bande')}</span>
         <span className="muted">{t('rotellina o +/− per lo zoom, trascina per spostarti')}</span>
 
       </div>

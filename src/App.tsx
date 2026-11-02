@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { fmtMoney, fmtNum, getLang, LANGS, locale, onLang, render, setLang, t, type Msg } from './i18n';
 import MapCanvas from './map/MapCanvas';
 import logoUrl from './assets/racket-king-logo.svg';
-import { api, useNet, type Net } from './net';
+import { api, useNet, type Mail, type Net } from './net';
 import { Art, AVATARS, bossArt, FAVOR_ICON, Ico, logArt, lotArt, lotIcon, MISSION_ICON, reportArt, reportIcon, TAB_ICON, ZONE_ICON } from './art';
 import { nextSeason, seasonAt, SEASON_LENGTH, syncSeasonSingle } from './engine/seasons';
 import City3D, { type Look, type TurfView } from './city/City3D';
@@ -30,8 +30,10 @@ function persist(state: GameState, speed: number) {
   try { localStorage.setItem(SAVE_KEY, JSON.stringify({ state, speed, savedAt: Date.now() })); } catch { /* storage non disponibile */ }
 }
 
-const TABS = ['Città', 'Panoramica', 'Crew', 'Know-how', 'Mappa', 'Rapporti'] as const;
-type Tab = (typeof TABS)[number];
+const ALL_TABS = ['Città', 'Panoramica', 'Crew', 'Know-how', 'Mappa', 'Rapporti', 'Diplomazia'] as const;
+/** Schede visibili: Diplomazia solo nel gioco online. */
+let TABS: readonly Tab[] = ALL_TABS.filter(x => x !== 'Diplomazia');
+type Tab = (typeof ALL_TABS)[number];
 
 // ---------------------------------------------------------------- testi e numeri nella lingua attiva
 const money = (x: number) => fmtMoney(x);
@@ -60,6 +62,7 @@ function tj(it: string, p: Record<string, React.ReactNode>) {
 export default function App({ net }: { net?: Net } = {}) {
   const ref = useRef<GameState | null>(null);
   if (net?.state) ref.current = net.state;
+  TABS = net ? ALL_TABS : ALL_TABS.filter(x => x !== 'Diplomazia');
   const [, setV] = useState(0);
   const [speed, setSpeed] = useState(60);
   const [tab, setTab] = useState<Tab>('Città');
@@ -89,6 +92,7 @@ export default function App({ net }: { net?: Net } = {}) {
   useEffect(() => { const off = onLang(rerender); return () => { off(); }; }, [rerender]);
   useEffect(() => { document.documentElement.lang = lang; document.title = net ? 'Racket King Online' : t('Racket King Online — prototipo'); }, [lang, net]);
 
+  useEffect(() => { if (net) net.onOpenChat = () => setTab('Diplomazia'); }, [net]);
   useEffect(() => {
     if (!net) return;
     let last = performance.now();
@@ -136,6 +140,7 @@ export default function App({ net }: { net?: Net } = {}) {
   }, [rerender, net]);
 
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3500); return () => clearTimeout(t); }, [toast]);
+  alertMsg = m => setToast({ ok: true, msg: '', m });
 
   const mine = owned(s);
   const c = s.cities[cid]?.owner === 'player' ? s.cities[cid] : s.cities[s.capital];
@@ -220,7 +225,7 @@ export default function App({ net }: { net?: Net } = {}) {
 
       <nav className="tabs" aria-label={t('Schede')}>
         <button className="key" style={{ padding: 0 }} onClick={() => setTab(TABS[(TABS.indexOf(tab) + TABS.length - 1) % TABS.length])} aria-label={t('Scheda precedente')}>Q</button>
-        {TABS.map(x => <button key={x} className={x === tab ? 'on' : ''} onClick={() => setTab(x)}><Ico id={TAB_ICON[x]} size="sm" />{t(x)}</button>)}
+        {TABS.map(x => <button key={x} className={x === tab ? 'on' : ''} onClick={() => setTab(x)}><Ico id={TAB_ICON[x]} size="sm" />{t(x)}{x === 'Diplomazia' && (net?.me?.unread || net?.me?.asksIn.length || net?.me?.pacts.some(p => p.status === 'proposed' && !p.mine)) ? <span className="badge">{(net.me.unread || 0) + net.me.asksIn.length + net.me.pacts.filter(p => p.status === 'proposed' && !p.mine).length}</span> : null}</button>)}
         <button className="key" style={{ padding: 0 }} onClick={() => setTab(TABS[(TABS.indexOf(tab) + 1) % TABS.length])} aria-label={t('Scheda successiva')}>E</button>
       </nav>
       <div className="crumbs"><b>{cityName(c.id)}</b><i>/</i>{t(tab)}</div>
@@ -232,6 +237,7 @@ export default function App({ net }: { net?: Net } = {}) {
         {tab === 'Crew' && <Crew s={s} c={c} run={run} />}
         {tab === 'Mappa' && <MapTab s={s} c={c} run={run} />}
         {tab === 'Rapporti' && <Log s={s} />}
+        {tab === 'Diplomazia' && net && <Diplomacy s={s} />}
       </main>
 
       <footer className="foot">
@@ -566,6 +572,84 @@ function Ledger({ s }: { s: GameState }) {
   );
 }
 
+/** Messaggio veloce per le azioni di diplomazia dalla mappa. */
+let alertMsg: (m: Msg) => void = () => {};
+// ---------------------------------------------------------------- diplomazia (solo online)
+function Diplomacy({ s }: { s: GameState }) {
+  const net = useNet(); const me = net?.me; const w = net?.world;
+  const [text, setText] = useState('');
+  const [toast, setToast] = useState<string | null>(null);
+  const [days, setDays] = useState<Record<number, number>>({});
+  useEffect(() => { if (net) { net.inbox(); if (net.threadWith !== null) net.inbox(net.threadWith); } }, [net]);
+  if (!net || !me || !w) return null;
+  const now = s.time;
+  const doAct = (a: Parameters<Net['act']>[0]) => { void net.act(a).then(r => setToast(r.m ? render(r.m) : r.msg ? t(r.msg) : null)); };
+  // conversazioni: l'ultimo messaggio per ogni boss
+  const convs = new Map<number, { name: string; last: Mail; unread: number }>();
+  for (const m of net.mail) { const other = m.from === me.id ? m.to : m.from; const name = m.from === me.id ? m.toName : m.fromName; const c = convs.get(other); if (!c) convs.set(other, { name, last: m, unread: 0 }); const x = convs.get(other)!; if (m.to === me.id && !m.read) x.unread++; }
+  const open = net.threadWith; const openName = open !== null ? (w.names[open] ?? convs.get(open)?.name ?? '?') : null;
+  const send = async (e: React.FormEvent) => { e.preventDefault(); if (open === null || !text.trim()) return; const r = await net.sendMail(open, text); if (r.ok) setText(''); else setToast(r.m ? render(r.m) : t(r.msg ?? 'Errore.')); };
+  const pIn = me.pacts.filter(p => p.status === 'proposed' && !p.mine);
+  const pOut = me.pacts.filter(p => p.status === 'proposed' && p.mine);
+  const pAct = me.pacts.filter(p => p.status === 'active');
+  const when = (sec: number) => new Date((w.startedAt + sec) * 1000).toLocaleString(locale(), { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  return (
+    <div className="grid two">
+      {toast && <div className="toast ok" onClick={() => setToast(null)}>{toast}</div>}
+      <section className="panel">
+        <h2 className="with-ico"><Ico id="esito-nonletto" size="md" />{t('Proposte e richieste')}</h2>
+        {!pIn.length && !me.asksIn.length && <p className="muted">{t('Nessuna proposta in attesa.')}</p>}
+        {pIn.map(p => <div key={p.id} className="pol"><Ico id="knowhow-corruzione" size="md" /><div><b>{t('Patto con {name}', { name: p.otherName })}</b><div className="muted small">{t('Non aggressione per {d} giorni. Scade la proposta tra {h}.', { d: p.days, h: duration(p.proposedAt + 48 * 3600 - now) })}</div></div>
+          <div className="pol-act"><button className="on" onClick={() => doAct({ t: 'pactAnswer', id: p.id, yes: true })}>{t('Accetta')}</button><button onClick={() => doAct({ t: 'pactAnswer', id: p.id, yes: false })}>{t('Rifiuta')}</button></div></div>)}
+        {me.asksIn.map(x => <div key={x.from} className="pol"><Ico id="mappa-banda" size="md" /><div><b>{t('{name} vuole entrare nella tua famiglia', { name: x.name })}</b><div className="muted small">{t('Ti verserebbe il {pct}% della rendita sporca; in cambio i tuoi uomini lo difendono.', { pct: Math.round(me.tribute * 100) })}</div></div>
+          <div className="pol-act"><button className="on" onClick={() => doAct({ t: 'familyAnswer', from: x.from, yes: true })}>{t('Accetta')}</button><button onClick={() => doAct({ t: 'familyAnswer', from: x.from, yes: false })}>{t('Rifiuta')}</button></div></div>)}
+        <h3 className="sub">{t('Patti in corso')}</h3>
+        {!pAct.length && !pOut.length && !me.asksOut.length && <p className="muted">{t('Nessun patto. Proponine uno dalla lista dei boss o dalla mappa.')}</p>}
+        {pAct.map(p => <div key={p.id} className="qline"><Ico id="knowhow-corruzione" size="xs" /><b>{p.otherName}</b> · {p.breakAt ? <span className="down">{t('rotto da {name}: vale ancora {d}', { name: p.brokenBy === me.id ? t('te') : p.otherName, d: duration(p.breakAt - now) })}</span> : t('fino al {when}', { when: when(p.until) })}
+          {!p.breakAt && <> · <button className="link" onClick={() => doAct({ t: 'pactBreak', id: p.id })}>{t('rompi')}</button></>}</div>)}
+        {pOut.map(p => <div key={p.id} className="qline muted"><Ico id="stato-coda" size="xs" />{t('Proposta a {name}: {d} giorni, in attesa', { name: p.otherName, d: p.days })}</div>)}
+        {me.asksOut.map(x => <div key={x.to} className="qline muted"><Ico id="stato-coda" size="xs" />{t('Hai chiesto protezione a {name}', { name: x.name })} · <button className="link" onClick={() => doAct({ t: 'familyCancel', to: x.to })}>{t('ritira')}</button></div>)}
+        <p className="hint">{t('Con un patto nessuno dei due può attaccare l\'altro. Chi lo rompe deve aspettare 24 ore prima di colpire, e l\'altro lo sa subito.')}</p>
+      </section>
+
+      <section className="panel">
+        <h2 className="with-ico"><Ico id="politica-campagna" size="md" />{t('Messaggi')}{me.unread ? <span className="badge">{me.unread}</span> : null}</h2>
+        <div className="chat">
+          <div className="convs">
+            {[...convs.entries()].map(([id, c]) => <button key={id} className={id === open ? 'on' : ''} onClick={() => net.openChat(id)}><b>{c.name}</b>{c.unread ? <span className="badge">{c.unread}</span> : null}<span className="muted small">{c.last.body.slice(0, 40)}</span></button>)}
+            {!convs.size && <p className="muted small">{t('Nessun messaggio. Scrivi a un boss dalla lista qui sotto o dalla mappa.')}</p>}
+          </div>
+          <div className="thread">
+            {open === null ? <p className="muted">{t('Scegli una conversazione.')}</p> : <>
+              <div className="thread-head"><b>{openName}</b></div>
+              <div className="msgs">{net.thread.map(m => <div key={m.id} className={`msg ${m.from === me.id ? 'mine' : ''}`}><span>{m.body}</span><i>{new Date(m.at).toLocaleString(locale(), { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</i></div>)}</div>
+              <form onSubmit={send} className="compose"><textarea value={text} maxLength={1000} onChange={e => setText(e.target.value)} placeholder={t('Scrivi a {name}…', { name: openName ?? '' })} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(e as unknown as React.FormEvent); } }} /><button className="on">{t('Invia')}</button></form>
+            </>}
+          </div>
+        </div>
+      </section>
+
+      <section className="panel wide">
+        <h2 className="with-ico"><Ico id="tab-crew" size="md" />{t('I boss del mondo')}</h2>
+        <table className="market">
+          <thead><tr><th>{t('Boss')}</th><th>{t('Città')}</th><th>{t('Punti')}</th><th>{t('Con te')}</th><th></th></tr></thead>
+          <tbody>{w.ranking.filter(x => x.id !== me.id).map(x => {
+            const ally = me.allies.includes(x.id); const pact = pAct.find(p => p.other === x.id); const fam = me.lord?.id === x.id || me.vassals.some(v => v.id === x.id) || (x.lord !== null && x.lord === me.lord?.id);
+            return <tr key={x.id}><td><span className={`dot-map ${ally ? 'ally' : 'rival'}`} />{x.name}</td><td>{x.cities}</td><td>{fmt(x.score)}</td>
+              <td className="muted">{fam ? t('famiglia') : pact ? t('patto') : t('rivale')}</td>
+              <td className="actions-row">
+                <button onClick={() => net.openChat(x.id)}>{t('Scrivi')}</button>
+                {!ally && <span className="pact-pick"><select value={days[x.id] ?? 7} onChange={e => setDays({ ...days, [x.id]: Number(e.target.value) })} aria-label={t('Durata del patto')}>{[3, 7, 14].map(d => <option key={d} value={d}>{t('{n} giorni', { n: d })}</option>)}</select><button onClick={() => doAct({ t: 'pactPropose', to: x.id, days: days[x.id] ?? 7 })}>{t('Proponi patto')}</button></span>}
+                {!me.lord && !me.vassals.length && x.lord === null && !fam && <button onClick={() => doAct({ t: 'familyAsk', to: x.id })}>{t('Chiedi protezione')}</button>}
+              </td></tr>;
+          })}</tbody>
+        </table>
+        <p className="hint">{t('Chiedere protezione significa entrare nella sua famiglia: gli versi il {pct}% della rendita sporca e i suoi uomini difendono le tue città. Ne esci come da qualsiasi famiglia: dopo {d} giorni senza perdere città o pagando il riscatto.', { pct: Math.round(me.tribute * 100), d: 30 })}</p>
+      </section>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- online: famiglia e classifica
 function Family({ s }: { s: GameState; run: (a: Action) => void }) {
   const net = useNet(); const me = net?.me; if (!net || !me) return null;
@@ -727,8 +811,11 @@ function MapTab({ s, c, run }: P) {
   const mine = owned(s);
   const ownedSet = new Set(mine.map(x => x.id));
   const net = useNet();
-  const rivals = new Set(net?.world ? Object.entries(net.world.owners).filter(([, o]) => o !== net.me?.id).map(([id]) => id) : []);
-  const known = new Set(Object.values(s.cities).filter(x => x.owner === 'npc' && !rivals.has(x.id)).map(x => x.id));
+  const others = net?.world ? Object.entries(net.world.owners).filter(([, o]) => o !== net.me?.id) : [];
+  const rivals = new Set(others.filter(([, o]) => !net?.me?.allies.includes(o)).map(([id]) => id));
+  const allies = new Set(others.filter(([, o]) => net?.me?.allies.includes(o)).map(([id]) => id));
+  const boss = net?.ownerOf(tc.id) ?? null;
+  const known = new Set(Object.values(s.cities).filter(x => x.owner === 'npc' && !rivals.has(x.id) && !allies.has(x.id)).map(x => x.id));
   const rival = net?.ownerName(tc.id) ?? null;
   const heldStates = new Set(mine.map(x => def(x.id).stateIdx));
   const results = searchCities(q);
@@ -763,7 +850,7 @@ function MapTab({ s, c, run }: P) {
               selected={lotSel !== null ? tL.lotBlocks[lotSel] : null} onSelect={(bi) => { const b = bi !== null ? tL.blocks[bi] : null; setLotSel(b && b.lot !== undefined && !b.extra ? b.lot : null); }} />
             <p className="hint">{quality === 'complete' ? t('Rapporto completo: vedi tutto, il QG ha il tetto rosso e la cassaforte quello verde.') : qgKnown ? t('Rapporto parziale, ma il QG è venuto allo scoperto.') : t('Rapporto parziale: i racket, il QG e la cassaforte sembrano palazzi qualunque. Un assalto su un palazzo sconosciuto è alla cieca.')} {t('Clicca un lotto per sceglierlo come bersaglio.')}</p>
           </>
-        ) : <MapCanvas owned={ownedSet} known={known} rivals={rivals} capital={s.capital} selected={target} heldStates={heldStates} missions={mm} focus={focus} onSelect={id => { setTarget(id); if (net && rivals.has(id)) void net.act({ t: 'look', city: id }); }} />}
+        ) : <MapCanvas owned={ownedSet} known={known} rivals={rivals} allies={allies} capital={s.capital} selected={target} heldStates={heldStates} missions={mm} focus={focus} onSelect={id => { setTarget(id); if (net && rivals.has(id)) void net.act({ t: 'look', city: id }); }} />}
       </section>
 
       <section className="panel side">
@@ -772,9 +859,14 @@ function MapTab({ s, c, run }: P) {
         <p className="lead small">{td.county} County · {td.state} · {t(td.tier)} · {t('{n} abitanti', { n: td.population })}</p>
         <p className="lead small">{t(td.desc)}</p>
         {isNpc && !rival && npcCooldown(s) > 0 && <p className="req"><Ico id="stato-coda" size="xs" />{t('Tregua dopo la tua ultima conquista: per {d} non puoi attaccare né comprare città delle bande. Le spie possono andare.', { d: duration(npcCooldown(s)) })}</p>}
-        {rival && tc.proxy === undefined && <p className="req">{t('Per ora non puoi colpire {name}: è nuovo, in vacanza, ha appena perso una città, è della tua famiglia o è troppo debole per te.', { name: rival })}</p>}
+        {boss && net && <div className="actions boss-actions">
+          <button onClick={() => net.openChat(boss.id)}><Ico id="politica-campagna" size="xs" />{t('Scrivi a {name}', { name: boss.name })}</button>
+          {!boss.ally && <button onClick={() => { void net.act({ t: 'pactPropose', to: boss.id, days: 7 }).then(r => r.m && alertMsg(r.m)); }}><Ico id="knowhow-corruzione" size="xs" />{t('Proponi un patto di 7 giorni')}</button>}
+          {!boss.ally && !net.me?.lord && !net.me?.vassals.length && <button onClick={() => { void net.act({ t: 'familyAsk', to: boss.id }).then(r => r.m && alertMsg(r.m)); }}><Ico id="mappa-banda" size="xs" />{t('Chiedi protezione')}</button>}
+        </div>}
+        {rival && !boss?.ally && tc.proxy === undefined && <p className="req">{t('Per ora non puoi colpire {name}: è nuovo, in vacanza, ha appena perso una città, è della tua famiglia o è troppo debole per te.', { name: rival })}</p>}
         <div className="stats">
-          <Stat k={t('Controllo')} v={rival ? t('Il boss {name}', { name: rival }) : isNpc ? capitalize(gangL(tc.gang.name)) : tc.id === s.capital ? t('Tua (capitale)') : t('Tua')} />
+          <Stat k={t('Controllo')} v={boss?.ally ? t('Il boss {name} (alleato)', { name: boss.name }) : rival ? t('Il boss {name}', { name: rival }) : isNpc ? capitalize(gangL(tc.gang.name)) : tc.id === s.capital ? t('Tua (capitale)') : t('Tua')} />
           {isNpc && <Stat k={t('Presa della banda')} v={`${Math.round(tc.gang.share * 100)}%`} />}
           {intel ? <>
             <Stat k={t('Uomini (rapporto di {d} fa)', { d: duration(s.time - intel.at) })} v={squadText(intel.units)} />

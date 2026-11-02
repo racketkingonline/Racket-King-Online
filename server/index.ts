@@ -23,6 +23,7 @@ async function main() {
   const auth = new Auth(db);
   const game = new Game(db);
   await game.load();
+  await game.loadUnread();
 
   await app.register(compress, { global: true, threshold: 2048, encodings: ['br', 'gzip'] });
   await app.register(cookie);

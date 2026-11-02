@@ -43,7 +43,11 @@ export type Slot = {
   history: { t: number; what: string; city?: string; other?: number }[];
 };
 
-export type WorldMeta = { version: 1; startedAt: number; center: string; owner: Record<string, number>; nextId: number; lastSync: number };
+/** Patto di non aggressione tra due giocatori. proposto → attivo; rotto = vale ancora fino a breakAt. */
+export type Pact = { id: number; a: number; b: number; days: number; status: 'proposed' | 'active'; proposedAt: number; until: number; breakAt?: number; brokenBy?: number };
+/** Richiesta di entrare nella famiglia di un boss (da chi chiede protezione a chi la dà). */
+export type FamilyAsk = { from: number; to: number; at: number };
+export type WorldMeta = { version: 1; startedAt: number; center: string; owner: Record<string, number>; nextId: number; lastSync: number; pacts?: Pact[]; nextPactId?: number; asks?: FamilyAsk[] };
 
 export type PublicPlayer = { id: number; name: string; avatar?: string; capital: string; cities: number; score: number; lord: number | null; vassals: number[] };
 
@@ -90,6 +94,7 @@ export class World {
     const v = this.slots.get(vi); if (!v) return null;
     const t = this.now();
     if (this.friend(att, vi)) return 'famiglia';
+    if (this.pactBetween(att.id, vi)) return 'patto';
     if (v.s.vacation) return 'vacanza';
     if (t - v.joinedAt < RULES.newbieDays * D) return 'nuovo';
     if (v.shieldUntil > t) return 'tregua';
@@ -176,6 +181,12 @@ export class World {
       case 'seen': for (const r of sl.s.reports) if (a.ids.includes(r.id)) r.seen = true; return { ok: true };
       case 'ransom': return this.ransom(sl);
       case 'look': this.look(sl, a.city); return { ok: true };
+      case 'pactPropose': return this.pactPropose(sl, a.to, a.days);
+      case 'pactAnswer': return this.pactAnswer(sl, a.id, a.yes);
+      case 'pactBreak': return this.pactBreak(sl, a.id);
+      case 'familyAsk': return this.familyAsk(sl, a.to);
+      case 'familyAnswer': return this.familyAnswer(sl, a.from, a.yes);
+      case 'familyCancel': this.meta.asks = (this.meta.asks ?? []).filter(x => !(x.from === sl.id && x.to === a.to)); return { ok: true };
     }
     const target = a.t === 'mission' ? a.to : a.t === 'acquire' ? a.city : a.t === 'police' ? a.target : undefined;
     if (target) {
@@ -374,11 +385,82 @@ export class World {
       sl.s.res.sporco -= tr; lord.s.res.sporco += tr;
       if (t - sl.vassalSince >= RULES.independenceDays * D) this.freeVassal(sl, `${RULES.independenceDays} giorni`);
     }
+    // 3d) patti scaduti, proposte e richieste vecchie
+    this.meta.pacts = this.pacts().filter(p => p.status === 'proposed' ? t - p.proposedAt < 48 * H : p.until > t && (p.breakAt === undefined || p.breakAt > t));
+    this.meta.asks = (this.meta.asks ?? []).filter(x => t - x.at < 7 * D && this.slots.has(x.from));
     // 4) le città dei rivali che conosciamo, aggiornate (e le città neutrali conquistate da altri diventano proxy)
     for (const sl of this.slots.values()) {
       for (const id of Object.keys(sl.proxies)) { const o = this.owner.get(id); if (o === undefined || o === sl.id || this.protectedFrom(sl, o)) this.dropProxy(sl, id); else this.refreshProxy(sl, id); }
       for (const c of Object.values(sl.s.cities)) if (c.owner === 'npc' && c.proxy === undefined) { const o = this.owner.get(c.id); if (o !== undefined && o !== sl.id) { if (this.protectedFrom(sl, o)) this.purgeCity(sl.s, c.id); else this.refreshProxy(sl, c.id); } }
     }
+  }
+
+  // ---------------------------------------------------------------- diplomazia
+  pacts() { return (this.meta.pacts ??= []); }
+  /** Il patto attivo tra due giocatori (anche se rotto, finché non scade il preavviso). */
+  pactBetween(a: number, b: number) {
+    const t = this.now();
+    return this.pacts().find(p => p.status === 'active' && ((p.a === a && p.b === b) || (p.a === b && p.b === a)) && p.until > t && (p.breakAt === undefined || p.breakAt > t)) ?? null;
+  }
+  /** Chi è dalla tua parte: famiglia e patti attivi (per i colori della mappa e le protezioni). */
+  alliesOf(sl: Slot): number[] {
+    const out = new Set<number>([...sl.vassals, ...sl.allies]); if (sl.lord !== null) out.add(sl.lord);
+    for (const p of this.pacts()) if (this.pactBetween(p.a, p.b) === p && (p.a === sl.id || p.b === sl.id)) out.add(p.a === sl.id ? p.b : p.a);
+    out.delete(sl.id); return [...out];
+  }
+  private notify(id: number, kind: 'info' | 'good' | 'warn' | 'bad', m: ReturnType<typeof M>) { const x = this.slots.get(id); if (!x) return; this.advance(x); log(x.s, kind, m); this.onChange(id); }
+  private pactPropose(sl: Slot, to: number, days: number): Result {
+    const o = this.slots.get(to); if (!o || o.id === sl.id) return { ok: false, msg: 'Giocatore sconosciuto.', m: M('Giocatore sconosciuto.') };
+    if (![3, 7, 14].includes(days)) return { ok: false, msg: 'Durata non valida.', m: M('Durata non valida.') };
+    if (this.friend(sl, to)) return { ok: false, msg: 'È già della tua famiglia.', m: M('È già della tua famiglia.') };
+    if (this.pactBetween(sl.id, to)) return { ok: false, msg: 'Avete già un patto.', m: M('Avete già un patto.') };
+    const t = this.now();
+    if (this.pacts().some(p => p.status === 'proposed' && ((p.a === sl.id && p.b === to) || (p.a === to && p.b === sl.id)) && t - p.proposedAt < 48 * H)) return { ok: false, msg: 'C\'è già una proposta in attesa.', m: M('C\'è già una proposta in attesa tra voi due.') };
+    const id = (this.meta.nextPactId = (this.meta.nextPactId ?? 1) + 1);
+    this.pacts().push({ id, a: sl.id, b: to, days, status: 'proposed', proposedAt: t, until: 0 });
+    this.notify(to, 'info', M('{name} ti propone un patto di non aggressione di {d} giorni: rispondi da Diplomazia.', { name: sl.name, d: days }));
+    return { ok: true, msg: 'Proposta mandata.', m: M('Proposta mandata a {name}.', { name: o.name }) };
+  }
+  private pactAnswer(sl: Slot, id: number, yes: boolean): Result {
+    const p = this.pacts().find(x => x.id === id && x.b === sl.id && x.status === 'proposed');
+    if (!p || this.now() - p.proposedAt > 48 * H) return { ok: false, msg: 'La proposta non c\'è più.', m: M('La proposta non c\'è più.') };
+    const other = this.get(p.a);
+    if (!yes) { this.meta.pacts = this.pacts().filter(x => x !== p); this.notify(p.a, 'warn', M('{name} ha rifiutato il patto di non aggressione.', { name: sl.name })); return { ok: true }; }
+    if (this.pactBetween(p.a, p.b)) { this.meta.pacts = this.pacts().filter(x => x !== p); return { ok: true }; }
+    p.status = 'active'; p.until = this.now() + p.days * D;
+    this.notify(p.a, 'good', M('{name} ha accettato: patto di non aggressione per {d} giorni.', { name: sl.name, d: p.days }));
+    log(sl.s, 'good', M('Patto di non aggressione con {name} per {d} giorni.', { name: other.name, d: p.days }));
+    return { ok: true };
+  }
+  private pactBreak(sl: Slot, id: number): Result {
+    const p = this.pacts().find(x => x.id === id && (x.a === sl.id || x.b === sl.id) && x.status === 'active' && x.breakAt === undefined);
+    if (!p) return { ok: false, msg: 'Patto non trovato.', m: M('Patto non trovato.') };
+    p.breakAt = this.now() + 24 * H; p.brokenBy = sl.id;
+    const other = p.a === sl.id ? p.b : p.a;
+    this.notify(other, 'bad', M('{name} ha rotto il patto di non aggressione: tra 24 ore potrà attaccarti.', { name: sl.name }));
+    return { ok: true, msg: 'Patto rotto.', m: M('Patto rotto: vale ancora 24 ore, poi siete di nuovo nemici.') };
+  }
+  private familyAsk(sl: Slot, to: number): Result {
+    const lord = this.slots.get(to); if (!lord || lord.id === sl.id) return { ok: false, msg: 'Giocatore sconosciuto.', m: M('Giocatore sconosciuto.') };
+    if (sl.lord !== null) return { ok: false, msg: 'Sei già in una famiglia.', m: M('Sei già nella famiglia di un altro boss.') };
+    if (sl.vassals.length) return { ok: false, msg: 'Hai già i tuoi uomini.', m: M('Hai una famiglia tua: non puoi entrare in quella di un altro.') };
+    if (lord.lord !== null) return { ok: false, msg: 'Risponde a un altro boss.', m: M('{name} risponde a sua volta a un altro boss: chiedi direttamente al capo.', { name: lord.name }) };
+    const asks = (this.meta.asks ??= []);
+    if (asks.some(x => x.from === sl.id && x.to === to)) return { ok: false, msg: 'Richiesta già mandata.', m: M('Hai già chiesto a {name}: aspetta la risposta.', { name: lord.name }) };
+    asks.push({ from: sl.id, to, at: this.now() });
+    this.notify(to, 'info', M('{name} chiede di entrare nella tua famiglia: ti verserebbe il {pct}% della rendita sporca. Rispondi da Diplomazia.', { name: sl.name, pct: RULES.tribute * 100 }));
+    return { ok: true, msg: 'Richiesta mandata.', m: M('Richiesta mandata a {name}.', { name: lord.name }) };
+  }
+  private familyAnswer(sl: Slot, from: number, yes: boolean): Result {
+    const asks = (this.meta.asks ??= []); const ask = asks.find(x => x.from === from && x.to === sl.id);
+    if (!ask) return { ok: false, msg: 'La richiesta non c\'è più.', m: M('La richiesta non c\'è più.') };
+    this.meta.asks = asks.filter(x => x !== ask);
+    const v = this.slots.get(from); if (!v) return { ok: true };
+    if (!yes) { this.notify(from, 'warn', M('{name} non ti vuole nella sua famiglia.', { name: sl.name })); return { ok: true }; }
+    if (v.lord !== null || v.vassals.length || sl.lord !== null) return { ok: false, msg: 'Non è più possibile.', m: M('Non è più possibile: qualcosa è cambiato nel frattempo.') };
+    this.becomeVassal(v, sl);
+    this.onChange(v.id);
+    return { ok: true };
   }
 
   // ---------------------------------------------------------------- amministrazione
@@ -426,7 +508,13 @@ export type ServerAction =
   | { t: 'introSeen' }
   | { t: 'seen'; ids: number[] }
   | { t: 'ransom' }
-  | { t: 'look'; city: string };
+  | { t: 'look'; city: string }
+  | { t: 'pactPropose'; to: number; days: number }
+  | { t: 'pactAnswer'; id: number; yes: boolean }
+  | { t: 'pactBreak'; id: number }
+  | { t: 'familyAsk'; to: number }
+  | { t: 'familyAnswer'; from: number; yes: boolean }
+  | { t: 'familyCancel'; to: number };
 
-const WHY: Record<string, string> = { famiglia: 'è della tua famiglia', vacanza: 'è in vacanza', nuovo: 'è appena arrivato', tregua: 'ha appena perso una città', debole: 'è troppo debole per te' };
+const WHY: Record<string, string> = { patto: 'avete un patto di non aggressione', famiglia: 'è della tua famiglia', vacanza: 'è in vacanza', nuovo: 'è appena arrivato', tregua: 'ha appena perso una città', debole: 'è troppo debole per te' };
 const cityName = (id: string) => cityRaw(Number(id))[0];

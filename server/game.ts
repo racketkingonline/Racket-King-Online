@@ -9,7 +9,7 @@ const SYNC_MS = Number(process.env.SYNC_MS ?? 15000);
 const SAVE_MS = Number(process.env.SAVE_MS ?? 30000);
 const PUSH_MIN_MS = 1000;
 
-type Conn = { ws: WebSocket; playerId: number; lastPush: number; pending: boolean; actions: number[] };
+type Conn = { ws: WebSocket; playerId: number; lastPush: number; pending: boolean; actions: number[]; msgs?: number[] };
 
 export class Game {
   world!: World;
@@ -95,11 +95,46 @@ export class Game {
   }
   online() { return this.conns.size; }
 
+  // ---------------------------------------------------------------- messaggi tra boss (nel database)
+  private unread = new Map<number, number>();
+  async loadUnread() {
+    const r = await this.db.query<{ to_player: number; n: number }>(`select to_player, count(*)::int n from messages where read_at is null group by to_player`);
+    for (const x of r) this.unread.set(x.to_player, x.n);
+  }
+  private async inbox(c: Conn, withId?: number) {
+    const me = c.playerId;
+    const rows = await this.db.query<{ id: number; from_player: number; to_player: number; body: string; created_at: string; read_at: string | null }>(
+      withId ? `select id, from_player, to_player, body, created_at, read_at from messages where (from_player = $1 and to_player = $2) or (from_player = $2 and to_player = $1) order by id desc limit 200`
+        : `select id, from_player, to_player, body, created_at, read_at from messages where from_player = $1 or to_player = $1 order by id desc limit 300`, withId ? [me, withId] : [me]);
+    if (withId) {
+      const n = (await this.db.query(`update messages set read_at = now() where to_player = $1 and from_player = $2 and read_at is null returning id`, [me, withId])).length;
+      if (n) this.unread.set(me, Math.max(0, (this.unread.get(me) ?? 0) - n));
+    }
+    const name = (id: number) => this.world.slots.get(id)?.name ?? '?';
+    this.send(c, { type: 'inbox', with: withId ?? null, unread: this.unread.get(me) ?? 0, messages: rows.map(r => ({ id: r.id, from: r.from_player, to: r.to_player, fromName: name(r.from_player), toName: name(r.to_player), body: r.body, at: new Date(r.created_at).getTime(), read: !!r.read_at })) });
+  }
+  private async sendMessage(c: Conn, id: number | undefined, to: unknown, body: unknown) {
+    const now = Date.now(); c.msgs = (c.msgs ?? []).filter(x => now - x < 60_000); c.msgs.push(now);
+    const fail = (k: string) => this.send(c, { type: 'result', id, ok: false, msg: k, m: { k } });
+    if (c.msgs.length > 15) return fail('Troppi messaggi: rallenta.');
+    const target = typeof to === 'number' ? this.world.slots.get(to) : undefined;
+    const text = typeof body === 'string' ? body.replace(/\r/g, '').trim().slice(0, 1000) : '';
+    if (!target || target.id === c.playerId) return fail('Giocatore sconosciuto.');
+    if (!text) return fail('Scrivi qualcosa.');
+    await this.db.query(`insert into messages (from_player, to_player, body) values ($1, $2, $3)`, [c.playerId, target.id, text]);
+    this.unread.set(target.id, (this.unread.get(target.id) ?? 0) + 1);
+    this.send(c, { type: 'result', id, ok: true });
+    void this.inbox(c, target.id);
+    for (const other of this.conns.get(target.id) ?? []) { this.send(other, { type: 'mail', from: c.playerId, fromName: this.world.slots.get(c.playerId)?.name, unread: this.unread.get(target.id) }); }
+  }
+
   private onMessage(c: Conn, raw: string) {
-    let msg: { type?: string; id?: number; action?: unknown };
+    let msg: { type?: string; id?: number; action?: unknown; with?: unknown; to?: unknown; body?: unknown };
     try { msg = JSON.parse(raw); } catch { return; }
     if (msg.type === 'ping') return this.send(c, { type: 'pong', now: this.world.now() });
     if (msg.type === 'world') return this.send(c, this.worldMsg());
+    if (msg.type === 'inbox') { void this.inbox(c, typeof msg.with === 'number' ? msg.with : undefined).catch(e => console.error('inbox', e)); return; }
+    if (msg.type === 'send') { void this.sendMessage(c, msg.id, msg.to, msg.body).catch(e => console.error('messaggio', e)); return; }
     if (msg.type !== 'act') return;
     const now = Date.now(); c.actions = c.actions.filter(x => now - x < 10_000); c.actions.push(now);
     if (c.actions.length > 60) return this.send(c, { type: 'result', id: msg.id, ok: false, msg: 'Troppe azioni: rallenta.', m: { k: 'Troppe azioni: rallenta.' } });
@@ -110,6 +145,7 @@ export class Game {
     try { r = this.world.act(sl, a); } catch (e) { console.error('azione fallita', a, e); r = { ok: false as const, msg: 'Errore del server.', m: { k: 'Errore del server.' } }; }
     this.dirty.add(sl.id);
     this.send(c, { type: 'result', id: msg.id, ...r });
+    if (r.ok && /^(pact|family)/.test(a.t)) this.broadcastWorld();
     this.schedulePush(sl.id, true);
   }
 
@@ -141,6 +177,11 @@ export class Game {
       ransomAt: lord ? sl.vassalSince + RULES.ransomAfterDays * 86400 : null,
       ransomCost: lord ? w.ransomCost(sl) : null,
       tribute: RULES.tribute, now: t,
+      allies: w.alliesOf(sl),
+      unread: this.unread.get(sl.id) ?? 0,
+      pacts: w.pacts().filter(p => p.a === sl.id || p.b === sl.id).map(p => { const other = p.a === sl.id ? p.b : p.a; return { ...p, other, otherName: w.slots.get(other)?.name ?? '?', mine: p.a === sl.id }; }),
+      asksIn: (w.meta.asks ?? []).filter(x => x.to === sl.id).map(x => ({ ...x, name: w.slots.get(x.from)?.name ?? '?' })),
+      asksOut: (w.meta.asks ?? []).filter(x => x.from === sl.id).map(x => ({ ...x, name: w.slots.get(x.to)?.name ?? '?' })),
     };
   }
   private worldMsg() {

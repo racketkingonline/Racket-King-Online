@@ -391,3 +391,28 @@ table.ledger td.up { color: var(--good); } table.ledger td.down { color: var(--b
 table.ledger tr.group td { padding-top: 14px; color: var(--gold); font: 500 12px var(--f-title); letter-spacing: .14em; text-transform: uppercase; border-bottom: 1px solid var(--line2); }
 table.ledger tr.sub td { color: var(--muted); font-weight: 600; border-top: 1px solid var(--line); }
 table.ledger tr.total td { font: 500 18px var(--f-title); letter-spacing: .06em; border-top: 2px solid var(--gold-line); padding-top: 10px; }
+
+/* ---------- diplomazia ---------- */
+.badge { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 6px; border-radius: 9px; background: var(--bad); color: #fff; font: 600 11px/18px var(--f-ui); text-align: center; letter-spacing: 0; vertical-align: 2px; }
+.chat { display: grid; grid-template-columns: 200px 1fr; gap: 12px; min-height: 340px; }
+.convs { display: grid; align-content: start; gap: 4px; max-height: 420px; overflow: auto; }
+.convs button { display: grid; text-align: left; gap: 2px; padding: 8px 10px; text-transform: none; letter-spacing: .02em; }
+.convs button b { font-weight: 600; }
+.convs button .badge { justify-self: start; margin: 0; }
+.convs button .muted { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.thread { display: grid; grid-template-rows: auto 1fr auto; gap: 8px; min-width: 0; }
+.thread-head { color: var(--gold); font: 500 15px var(--f-title); letter-spacing: .08em; text-transform: uppercase; }
+.msgs { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow: auto; padding-right: 4px; }
+.msg { align-self: flex-start; max-width: 82%; background: rgba(150, 180, 190, .1); border: 1px solid var(--line); padding: 7px 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg.mine { align-self: flex-end; background: rgba(200, 176, 130, .12); border-color: rgba(200, 176, 130, .35); }
+.msg i { display: block; font-style: normal; color: var(--dim); font-size: 11px; margin-top: 3px; }
+.compose { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.compose textarea { font: inherit; color: var(--ink); background: rgba(6, 9, 10, .7); border: 1px solid var(--line2); padding: 8px 10px; min-height: 56px; resize: vertical; }
+.dot-map { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; vertical-align: 1px; }
+.dot-map.rival { background: #e0473b; } .dot-map.ally { background: #4f8fe8; }
+.actions-row { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.actions-row button, .pact-pick select { font-size: 12.5px; padding: 4px 9px; }
+.pact-pick { display: inline-flex; gap: 4px; }
+.pact-pick select { font: inherit; color: inherit; background: var(--panel2); border: 1px solid var(--line2); }
+.boss-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
+@media (max-width: 760px) { .chat { grid-template-columns: 1fr; } }

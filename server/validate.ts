@@ -51,6 +51,11 @@ export function cleanAction(raw: unknown): Action | ServerAction | null {
     case 'introSeen': case 'ransom': return { t };
     case 'seen': return Array.isArray(a.ids) && a.ids.length <= 100 && a.ids.every(x => isInt(x, 0, 1e9)) ? { t, ids: a.ids as number[] } : null;
     case 'look': return isCity(a.city) ? { t, city: a.city as string } : null;
+    case 'pactPropose': return isInt(a.to, 1, 1e9) && (a.days === 3 || a.days === 7 || a.days === 14) ? { t, to: a.to as number, days: a.days as number } : null;
+    case 'pactAnswer': return isInt(a.id, 1, 1e9) && typeof a.yes === 'boolean' ? { t, id: a.id as number, yes: a.yes } : null;
+    case 'pactBreak': return isInt(a.id, 1, 1e9) ? { t, id: a.id as number } : null;
+    case 'familyAsk': case 'familyCancel': return isInt(a.to, 1, 1e9) ? { t, to: a.to as number } : null;
+    case 'familyAnswer': return isInt(a.from, 1, 1e9) && typeof a.yes === 'boolean' ? { t, from: a.from as number, yes: a.yes } : null;
   }
   return null;
 }

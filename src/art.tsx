@@ -82,7 +82,7 @@ export function lotIcon(kind?: string, id?: string) {
   return kind === 'racket' ? `racket-${id}` : kind === 'front' ? `front-${id}` : `struttura-${id}`;
 }
 
-export const TAB_ICON: Record<string, string> = { 'Città': 'tab-citta', 'Panoramica': 'tab-panoramica', 'Crew': 'tab-crew', 'Know-how': 'tab-knowhow', 'Mappa': 'tab-mappa', 'Rapporti': 'tab-rapporti' };
+export const TAB_ICON: Record<string, string> = { 'Città': 'tab-citta', 'Panoramica': 'tab-panoramica', 'Crew': 'tab-crew', 'Know-how': 'tab-knowhow', 'Mappa': 'tab-mappa', 'Rapporti': 'tab-rapporti', 'Diplomazia': 'knowhow-corruzione' };
 export const ZONE_ICON: Record<string, string> = { centro: 'quartiere-centro', periferia: 'quartiere-periferia', industriale: 'quartiere-industriale', porto: 'quartiere-porto' };
 export const MISSION_ICON: Record<string, string> = { raid: 'missione-razzia', spy: 'missione-spia', assault: 'missione-assalto', transfer: 'missione-trasferimento', strike: 'missione-colpo' };
 export const FAVOR_ICON: Record<string, string> = { soffiata: 'polizia-soffiata', occhio: 'polizia-occhio', bustarella: 'polizia-bustarella', boxe: 'politica-boxe', fiera: 'politica-fiera', beneficenza: 'politica-beneficenza', zonizzazione: 'politica-zonizzazione', licenzaCasino: 'front-casino' };

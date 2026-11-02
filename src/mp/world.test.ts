@@ -72,6 +72,34 @@ describe('mondo multiplayer', () => {
     expect(a.s.cities['7'].owner).toBe('player');
   });
 
+  it('patto di non aggressione: proposta, accettazione, rottura con 24 ore di preavviso', () => {
+    const { w, a, b, at } = setup();
+    at(6 * D); w.sync();
+    a.s.cities[a.s.capital].units.soldati = 400; a.s.res.sporco = 1e7;
+    expect(w.act(a, { t: 'pactPropose', to: b.id, days: 7 }).ok).toBe(true);
+    const p = w.pacts()[0];
+    expect(w.act(b, { t: 'pactAnswer', id: p.id, yes: true }).ok).toBe(true);
+    expect(w.alliesOf(a)).toContain(b.id); expect(w.alliesOf(b)).toContain(a.id);
+    const raid = () => w.act(a, { t: 'mission', kind: 'raid', from: a.s.capital, to: b.s.capital, units: { soldati: 10 } });
+    expect(raid().ok).toBe(false);
+    expect(w.act(a, { t: 'pactBreak', id: p.id }).ok).toBe(true);
+    expect(b.s.log[0].m?.k).toMatch(/rotto il patto/);
+    at(12 * 3600); w.sync(); expect(raid().ok).toBe(false);
+    at(13 * 3600); w.sync(); expect(raid().ok).toBe(true);
+    expect(w.pacts().length).toBe(0);
+  });
+
+  it('entrare in una famiglia per scelta', () => {
+    const { w, a, b } = setup();
+    expect(w.act(b, { t: 'familyAsk', to: a.id }).ok).toBe(true);
+    expect(w.act(b, { t: 'familyAsk', to: a.id }).ok).toBe(false);
+    expect(w.act(a, { t: 'familyAnswer', from: b.id, yes: true }).ok).toBe(true);
+    expect(b.lord).toBe(a.id); expect(a.vassals).toContain(b.id);
+    expect(w.alliesOf(a)).toContain(b.id);
+    // chi ha uomini suoi non può entrare in un'altra famiglia
+    expect(w.act(a, { t: 'familyAsk', to: b.id }).ok).toBe(false);
+  });
+
   it('si salva e si ricarica', () => {
     const { w, a, b, at } = setup();
     at(3600); w.sync();

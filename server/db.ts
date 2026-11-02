@@ -81,5 +81,8 @@ const MIGRATIONS = [
    )`,
   `alter table users add column if not exists invite_token text`,
   `alter table invites add column if not exists email text`,
+  `create table if not exists messages (id serial primary key, from_player integer not null, to_player integer not null, body text not null, created_at timestamptz not null default now(), read_at timestamptz)`,
+  `create index if not exists messages_to on messages(to_player, read_at)`,
+  `create index if not exists messages_pair on messages(from_player, to_player)`,
 ];
 async function migrate(db: Db) { for (const m of MIGRATIONS) await db.query(m); }
